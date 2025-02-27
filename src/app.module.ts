@@ -1,0 +1,22 @@
+import { Module } from '@nestjs/common/decorators';
+
+import { ConfigModule } from '@nestjs/config';
+import { BotService } from './service/bots/bot.service';
+import { TelegramOperator } from './service/bots/operator/telegram';
+export const isDev =
+  process.env.USERNAME === 'effec' || process.env.USERNAME === 'Gaming';
+
+if (isDev) {
+  require('dotenv').config({ path: __dirname + '../../.env' });
+}
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true, // чтобы переменные окружения были доступны во всей программе
+    }),
+  ],
+  providers: [BotService, TelegramOperator],
+})
+
+export class AppModule {}

@@ -1,0 +1,442 @@
+import { Injectable, OnModuleInit } from '@nestjs/common';
+import * as TelegramBot from 'node-telegram-bot-api';
+import { CallbackQuery, Message } from 'node-telegram-bot-api';
+import {
+  BOT_MAKER_STRATEGY_HEADER,
+  END_TARIFF,
+  GENIUS_TARIFF,
+  GREETING,
+  GREETING_2,
+  LESSON_1_CHAPTER_1,
+  LESSON_2_CHAPTER_1,
+  LESSON_2_CHAPTER_2,
+  LESSON_3_CHAPTER_1,
+  LESSON_3_CHAPTER_2,
+  MEDIA_TARIFF,
+  POPULAR_TARIFF,
+  QUESTION_CASE,
+  SUCCESS_CASE,
+} from './content';
+import { TelegramOperator } from './operator/telegram';
+
+
+const waitSync = (timeout: number) =>
+  new Promise((res) => setTimeout(res, timeout));
+
+@Injectable()
+export class TelegramBotService implements OnModuleInit {
+  constructor(private readonly telegramOperator: TelegramOperator)  {}
+
+
+  initialization() {
+
+
+    this.registerCommand('/start', (msg) => this.mainMenu(msg), {
+      validations: false,
+    });
+
+    //this.registerCommand('/tariffs', (msg) => this.requestTariff(msg), {
+    //  validations: false,
+    //});
+    //
+    // CallBackCommands.addCommand('1', this.getPoplarTariff.bind(this));
+    // CallBackCommands.addCommand('2', this.getMediaTariff.bind(this));
+
+  }
+
+  async mainMenu(msg: Message) {
+    await this.requestQuestion(msg, GREETING, {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [
+            {text: '💬 Разработка чат-ботов и автоматизация', callback_data: 'bot_strategy'}
+          ]
+        ]
+      }
+    })
+  }
+
+  async botMakerBrief(msg: Message) {
+    await this.requestQuestion(msg, BOT_MAKER_STRATEGY_HEADER)
+  }
+
+  async startLesson1(msg: Message) {
+    try {
+      await this.bot.sendMessage(
+        msg.chat.id,
+        'https://www.youtube.com/embed/42v0HaLqiY0?si=wFKrDvy4Q-_1iZDH',
+      );
+      await waitSync(4000);
+      const { text: answer } = await this.requestQuestion(
+        msg,
+        LESSON_1_CHAPTER_1,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: 'Всё готово, давай следующий урок)',
+                  callback_data: 'getLesson2',
+                },
+              ],
+            ],
+          },
+          parse_mode: 'HTML',
+        },
+      );
+
+      if (answer === 'getLesson2') {
+        this.lesson2(msg);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  public async lesson2(msg: Message) {
+    try {
+      await this.bot.sendMessage(msg.chat.id, 'https://youtu.be/OW6xl_d5Oww');
+      await waitSync(4000);
+      await this.bot.sendMessage(msg.chat.id, LESSON_2_CHAPTER_1, {
+        parse_mode: 'HTML',
+      });
+      const { text: answer } = await this.requestQuestion(
+        msg,
+        LESSON_2_CHAPTER_2,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: 'Всё готово, давай следующий урок)',
+                  callback_data: 'getLesson2',
+                },
+              ],
+            ],
+          },
+          parse_mode: 'HTML',
+        },
+      );
+
+      if (answer === 'getLesson2') {
+        this.lesson3(msg);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  public async lesson3(msg: Message) {
+    try {
+      await this.bot.sendMessage(msg.chat.id, 'https://youtu.be/I-M48OGXc0Y');
+      await waitSync(4000);
+      await this.bot.sendMessage(msg.chat.id, LESSON_3_CHAPTER_1);
+      const { text: answer } = await this.requestQuestion(
+        msg,
+        LESSON_3_CHAPTER_2,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: 'Узнать подробнее о пакетах', callback_data: 'next' }],
+            ],
+          },
+          parse_mode: 'HTML',
+        },
+      );
+
+      if (answer === 'next') {
+        await this.requestTariff(msg);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async requestTariff(msg: Message) {
+    try {
+      const { text: tariff } = await this.requestQuestion(msg, END_TARIFF, {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: 'Узнать про пакет "Популярный"', callback_data: '1' }],
+            [{ text: 'Узнать про пакет "Медийный"', callback_data: '2' }],
+            [{ text: 'Узнать про пакет "Гений"', callback_data: '3' }],
+          ],
+        },
+      });
+
+      if (tariff === '1') {
+        await this.getPoplarTariff(msg);
+      }
+      if (tariff === '2') {
+        await this.getMediaTariff(msg);
+      }
+      if (tariff === '3') {
+        await this.getGeniusTariff(msg);
+      }
+    } catch (e) {}
+  }
+
+  async getPoplarTariff(msg: Message) {
+    const url = 'https://payform.ru/7i3aDN7/';
+    await this.requestQuestion(msg, POPULAR_TARIFF, {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [[{ text: 'Оплатить', web_app: { url } }]],
+      },
+    });
+    await this.payIt(msg, url);
+  }
+
+  async payIt(msg: Message, link: string) {
+    await waitSync(60000);
+    const { text: isPayed } = await this.requestQuestion(msg, 'Уже оплатили?', {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: 'Да', callback_data: 'yes' }],
+          [{ text: 'В процессе', callback_data: 'inProcess' }],
+          [{ text: 'Есть вопрос', callback_data: 'question' }],
+        ],
+      },
+    });
+    if (isPayed === 'yes') {
+      await this.getSuccessCase(msg);
+    }
+    if (isPayed === 'inProcess') {
+      await this.inProcess(msg);
+    }
+    if (isPayed === 'question') {
+      await this.bot.sendMessage(msg.chat.id, QUESTION_CASE);
+    }
+  }
+
+  public async inProcess(msg: Message) {
+    waitSync(60000 * 5);
+    const { text: answer } = await this.requestQuestion(msg, 'А теперь?', {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: 'Да', callback_data: 'yes' }],
+          [{ text: 'Есть вопрос', callback_data: 'question' }],
+        ],
+      },
+    });
+
+    if (answer === 'yes') {
+      await this.getSuccessCase(msg);
+    }
+    if (answer === 'question') {
+      await this.bot.sendMessage(msg.chat.id, QUESTION_CASE);
+    }
+  }
+
+  public async getSuccessCase(msg: Message) {
+    await this.bot.sendMessage(msg.chat.id, SUCCESS_CASE);
+  }
+
+  async getMediaTariff(msg: Message) {
+    const url = 'https://payform.ru/cn3aDPR/';
+    await this.requestQuestion(msg, MEDIA_TARIFF, {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [[{ text: 'Оплатить', web_app: { url } }]],
+      },
+    });
+    await this.payIt(msg, url);
+  }
+
+  async getGeniusTariff(msg: Message) {
+    const url = 'https://payform.ru/k43aDTO/';
+    await this.requestQuestion(msg, GENIUS_TARIFF, {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [[{ text: 'Оплатить', web_app: { url } }]],
+      },
+    });
+    await this.payIt(msg, url);
+  }
+
+  async startProlog(msg: Message) {
+    try {
+      const { text: answerGreeting } = await this.requestQuestion(
+        msg,
+        GREETING,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: 'Напитки и вкусняшки готовы', callback_data: 'next' }],
+            ],
+          },
+        },
+      );
+      if (answerGreeting === 'next') {
+        const { text: answerGreeting2 } = await this.requestQuestion(
+          msg,
+          GREETING_2,
+          {
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: 'Ок! Буду записыввть!', callback_data: 'next' }],
+              ],
+            },
+          },
+        );
+        if (answerGreeting2 === 'next') {
+          const { text: answerGreeting3 } = await this.requestQuestionPhoto(
+            msg,
+            'https://lh3.googleusercontent.com/u/0/drive-viewer/AK7aPaBRYmr7DAsRQaXbIhfNoXxCTzKGdmDINGxUuOtkOl9NzAX_LNH5zK7FZ-1B419J1FGnO8AZ7ehQ8tJtprPhfbztvgHpzQ=w1860-h917',
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: 'Клёво, Погнали!', callback_data: 'next' }],
+                ],
+              },
+            },
+          );
+          if (answerGreeting3 === 'next') {
+            await this.startLesson1(msg);
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
+  async sendError(msg: Message) {
+    const menu = await this.requestQuestion(
+      msg,
+      'Произашла обшика попробуйте позже 🥲',
+      {
+        reply_markup: {
+          keyboard: [[{ text: 'Назад' }]],
+          resize_keyboard: true,
+        },
+      },
+    );
+
+    if (menu.text === 'Назад') {
+      await this.mainMenu(msg);
+    }
+  }
+
+  async botThinking(
+    msg: TelegramBot.Message,
+    callback: () => Promise<any>,
+    action: (msg: Message) => void,
+  ) {
+    const handler = (userMsg: Message) => {
+      if (userMsg.from.id === msg.from.id) {
+        if (userMsg.text.match(/^\/\w+/)) {
+          action(userMsg);
+          throw new Error('Введена команда');
+        }
+        action(userMsg);
+      }
+    };
+    try {
+      this.bot.on('message', handler);
+      await callback();
+      this.bot.removeListener('message', handler);
+    } catch (e) {
+      this.sendError(msg);
+      this.bot.removeListener('message', handler);
+    }
+  }
+
+  async requestQuestion(
+    msg: Message,
+    text: string,
+    options?: TelegramBot.SendMessageOptions,
+  ): Promise<Message> {
+    return new Promise(async (res, rej) => {
+      //@ts-ignore
+      const lineKeyboard = options?.reply_markup?.inline_keyboard;
+
+      const buttons =
+        lineKeyboard && lineKeyboard[0].map((button) => button.callback_data);
+
+      const buttonHandler = (callbackQuery: CallbackQuery) => {
+        if (callbackQuery.message.chat.id === msg.from.id) {
+          const isCommand = Object.keys(
+            this.callbackCommands.callbackQueryCommands,
+          ).find((command) => callbackQuery.data === command);
+
+          if (!isCommand) {
+            res({ ...callbackQuery.message, ...{ text: callbackQuery.data } });
+            this.bot.answerCallbackQuery(callbackQuery.id);
+            this.bot.removeListener('callback_query', buttonHandler);
+          }
+        }
+      };
+
+      const handler = (userMsg: Message) => {
+        if (userMsg.from.id === msg.from.id) {
+          if (userMsg.text.match(/^\/\w+/)) {
+            rej(userMsg);
+            this.bot.removeListener('message', handler);
+          } else {
+            res(userMsg);
+            this.bot.removeListener('message', handler);
+          }
+        }
+      };
+
+      if (buttons && buttons.length > 0) {
+        this.bot.on('callback_query', buttonHandler);
+      }
+
+      await this.bot.sendMessage(msg.chat.id, text, {
+        ...options,
+        reply_markup: { remove_keyboard: true, ...options?.reply_markup },
+      });
+      this.bot.on('message', handler);
+    });
+  }
+
+  async requestQuestionPhoto(
+    msg: Message,
+    photo: string,
+    options?: TelegramBot.SendMessageOptions,
+  ): Promise<Message> {
+    return new Promise(async (res, rej) => {
+      //@ts-ignore
+      const lineKeyboard = options?.reply_markup?.inline_keyboard;
+
+      const buttons =
+        lineKeyboard && lineKeyboard[0].map((button) => button.callback_data);
+
+      const buttonHandler = (callbackQuery: CallbackQuery) => {
+        if (callbackQuery.message.chat.id === msg.from.id) {
+          res({ ...callbackQuery.message, ...{ text: callbackQuery.data } });
+        }
+      };
+
+      const handler = (userMsg: Message) => {
+        if (userMsg.from.id === msg.from.id) {
+          if (userMsg.text.match(/^\/\w+/)) {
+            rej(userMsg);
+          } else {
+            res(userMsg);
+            this.bot.removeListener('photo', handler);
+          }
+        }
+      };
+
+      if (buttons && buttons.length > 0) {
+        this.bot.on('callback_query', buttonHandler);
+      }
+
+      await this.bot.sendPhoto(msg.chat.id, photo, {
+        ...options,
+        reply_markup: { remove_keyboard: true, ...options?.reply_markup },
+      });
+      this.bot.on('photo', handler);
+    });
+  }
+
+  onModuleInit(): any {
+    this.initialization();
+  }
+}

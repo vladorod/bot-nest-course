@@ -1,8 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import * as TelegramBot from 'node-telegram-bot-api';
 import { CallbackQuery, Message } from 'node-telegram-bot-api';
-
-
+import * as process from 'process';
 
 
 
@@ -13,12 +12,15 @@ const waitSync = (timeout: number) =>
 export class TelegramOperator implements OnModuleInit {
 
   public bot: TelegramBot;
+
   callbackQueryCommands: Record<string, (msg: Message) => Promise<void>> = {};
+
   constructor() {
     const token =  process.env.TELEGRAM_BOT_TOKEN;
     const bot = new TelegramBot(token, {
       polling: true,
     });
+
     this.bot = bot;
     this.callbackQueryCommands = {};
 
@@ -30,11 +32,10 @@ export class TelegramOperator implements OnModuleInit {
     options?: { validations?: boolean },
   ) {
     const regex = new RegExp(command, 'ig');
-    const validation =
-      typeof options?.validations === 'undefined' ? true : options?.validations;
+    const validation = options?.validations ;
 
     this.bot.on('message',  async (msg) => {
-      if (msg.text.match(regex)) {
+      if (msg.text && msg.text.match(regex)) {
         if (!validation) {
           callBack(msg);
         }

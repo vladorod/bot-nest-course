@@ -2,7 +2,7 @@
 FROM node:20.12.2 AS deps
 WORKDIR /app
 COPY package*.json ./
-RUN npm i --legacy-peer-deps
+RUN npm i --force
 
 # 2) Сборка + prisma generate
 FROM node:20.12.2 AS builder

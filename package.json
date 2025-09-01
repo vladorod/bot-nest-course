@@ -32,8 +32,8 @@
     "@nestjs/jwt": "^10.2.0",
     "@nestjs/passport": "^10.0.3",
     "@nestjs/platform-express": "^10.4.20",
-    "@nestjs/swagger": "^7.1.16",
-    "@nestjs/typeorm": "^8.0.3",
+    "@nestjs/swagger": "^7.4.2",
+    "@nestjs/typeorm": "^8.1.4",
     "@prisma/client": "^6.15.0",
     "@types/crypto-js": "^4.1.2",
     "@willsoto/nestjs-prometheus": "^6.0.0",
@@ -57,7 +57,7 @@
     "typeorm": "^0.3.6"
   },
   "devDependencies": {
-    "@nestjs/cli": "^10.2.1",
+    "@nestjs/cli": "^11.0.10",
     "@nestjs/schematics": "^8.0.0",
     "@nestjs/testing": "^10.2.10",
     "@types/express": "^4.17.13",
@@ -68,7 +68,7 @@
     "@types/supertest": "^2.0.11",
     "@typescript-eslint/eslint-plugin": "^5.0.0",
     "@typescript-eslint/parser": "^5.0.0",
-    "eslint": "5",
+    "eslint": "^9.34.0",
     "eslint-config-prettier": "^8.3.0",
     "eslint-plugin-prettier": "^4.0.0",
     "jest": "^27.2.5",

@@ -13,8 +13,6 @@ COPY . .
 # Важно: схема должна лежать в ./prisma/schema.prisma
 RUN npx prisma generate
 RUN npm run build
-# 3) Обрезаем dev-зависимости после сборки
-RUN npm prune --omit=dev
 
 # 4) Прод-образ: только то, что нужно в рантайме
 FROM node:20.12.2 AS runner

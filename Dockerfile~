@@ -2,7 +2,7 @@
 FROM node:20.12.2 AS deps
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+RUN npm i --legacy-peer-deps
 
 # 2) Сборка + prisma generate
 FROM node:20.12.2 AS builder
@@ -14,7 +14,7 @@ COPY . .
 RUN npx prisma generate
 RUN npm run build
 # 3) Обрезаем dev-зависимости после сборки
-RUN npm prune --omit=dev
+RUN npm prune --omit=tarobot
 
 # 4) Прод-образ: только то, что нужно в рантайме
 FROM node:20.12.2 AS runner

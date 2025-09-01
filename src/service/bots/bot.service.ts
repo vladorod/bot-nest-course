@@ -1,30 +1,27 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import {  Chat, Message } from 'node-telegram-bot-api';
+import { Message } from 'node-telegram-bot-api';
 import {
-  STRATEGY_HEADER,
-  GREETING,
-  BOT_BRIEF_QUESTIONS,
-  SUCCESS_MSG,
-  ERROR_MSG,
-  DESIGN_BRIEF_QUESTIONS,
-  MOBILE_BRIEF_QUESTIONS,
-  WEBSITE_BRIEF_QUESTIONS,
+  GREETING, MAKE_SCHEDULE_TITLE,
 } from './content';
 import { TelegramOperator } from './operator/telegram';
 import * as process from 'process';
+import TaroService from './taro.service';
+import OpenAiService from '../../openai-service/openAi.service';
+import { QuestionResponseDto, requestQuestion } from '../../utils';
+import { UserService } from '../user/user.service';
+import dayjs from 'dayjs';
 
-const waitSync = (timeout: number) =>
-  new Promise((res) => setTimeout(res, timeout));
+
 
 const dialogs = new Set();
-const appointments = new Map();
+
 @Injectable()
 export class BotService implements OnModuleInit {
   public appointmentThreadId : string;
   public appointmentChatId : string;
   public botName : string;
 
-  constructor(private readonly telegramOperator: TelegramOperator)  {}
+  constructor(private readonly telegramOperator: TelegramOperator, private readonly userService: UserService)  {}
 
   initialization() {
     this.appointmentThreadId = process.env.TELEGRAM_APPOINTMENTS_THREAD_ID;
@@ -35,18 +32,26 @@ export class BotService implements OnModuleInit {
       validations: false,
     });
 
+    this.telegramOperator.registerCommand('/getTariffs', (msg) => this.getTariffs(msg), {
+      validations: false,
+    });
 
-    //this.registerCommand('/tariffs', (msg) => this.requestTariff(msg), {
-    //  validations: false,
-    //});
-    //
-    // CallBackCommands.addCommand('1', this.getPoplarTariff.bind(this));
-    // CallBackCommands.addCommand('2', this.getMediaTariff.bind(this));
+    this.telegramOperator.registerCommand('/profile', (msg) => this.getProfile(msg), {
+      validations: false,
+    });
 
-    this.telegramOperator.addCommand('bot_strategy', (msg) => this.botMakerBrief(msg));
-    this.telegramOperator.addCommand('design_strategy', (msg) => this.designMakerBrief(msg));
-    this.telegramOperator.addCommand('mobile_strategy', (msg) => this.mobileMakerBrief(msg));
-    this.telegramOperator.addCommand('web_strategy', (msg) => this.webSuiteMakerBrief(msg));
+    this.telegramOperator.addCommand('make_schedule', (msg) => this.makeSchedule(msg));
+    this.telegramOperator.addCommand('menu', (msg) => this.mainMenu(msg));
+    this.telegramOperator.addCommand('relationship_magic', (msg) => this.relationshipMagic(msg));
+    this.telegramOperator.addCommand('health_magic', (msg) => this.healthMagic(msg));
+    this.telegramOperator.addCommand('finance_magic', (msg) => this.financeMagic(msg));
+    this.telegramOperator.addCommand('common_magic', (msg) => this.commonMagic(msg));
+    this.telegramOperator.addCommand('work_magic', (msg) => this.workMagic(msg));
+    this.telegramOperator.addCommand('ask_question', (msg) => this.askQuestion(msg));
+    this.telegramOperator.addCommand('cart_of_day', (msg) => this.cardOfDay(msg));
+
+
+
     this.telegramOperator.updateCallbackQueryCommands();
   }
 
@@ -128,177 +133,257 @@ export class BotService implements OnModuleInit {
     }
   }
 
+
   async mainMenu(msg: Message) {
-    if (msg.text.match('leaveDialog')) return
-    if (msg.text.match('startDialog')) {
-      await this.startDialog(msg);
-      return;
+    try {
+      void this.getUser(msg);
+      await this.telegramOperator.requestQuestion(msg, GREETING, {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '🔮 Сделать расклад', callback_data: 'make_schedule' },
+            ],
+            [
+              { text: '🧙🏻‍♀️ Задать вопрос', callback_data: 'ask_question' },
+            ],
+            [
+              { text: '🃏 Карта дня', callback_data: 'cart_of_day' },
+            ]
+          ]
+        }
+      })
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  async getUser(msg: Message) {
+    const chat = await this.telegramOperator.bot.getChat(msg.chat.id);
+    let user = await this.userService.isUserExist(chat.id.toString());
+
+    if (!user) {
+      user = await this.userService.create({
+        telegramId: chat.id.toString(),
+        firstName: chat.first_name,
+        lastName: chat.last_name,
+        username: chat.username
+      })
     }
 
-    if (!!msg.text.match('@promizeStudioBot')) {
-      await this.telegramOperator.bot.sendMessage(msg.chat.id, 'Соре тут эта команда не работает', {message_thread_id: msg.message_thread_id})
-      return
-    }
-    await this.telegramOperator.bot.setChatMenuButton({
-      chat_id: msg.chat.id,
-      menu_button: {
-        type: 'default'
-      },
-    });
+    return user
+  }
 
-    await this.telegramOperator.requestQuestion(msg, GREETING, {
+  public async makeSchedule(msg: Message) {
+    try {
+      await this.telegramOperator.requestQuestion(msg, MAKE_SCHEDULE_TITLE, {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '💕 Отношения', callback_data: 'relationship_magic' },
+            ],
+            [
+              { text: '💊 Здоровье', callback_data: 'health_magic' },
+            ],
+            [
+              { text: '💰 Деньги', callback_data: 'finance_magic' },
+            ],
+            [
+              { text: '💼 Работа', callback_data: 'work_magic' },
+            ],
+            [
+              { text: '🔮 Общий', callback_data: 'common_magic' },
+            ]
+          ]
+        }
+      })
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  public async relationshipMagic(msg: Message) {
+    await this.getAnswer(msg, 'расскажи что ждет меня в плане отношений');
+  }
+  public async healthMagic(msg: Message) {
+    await this.getAnswer(msg, 'расскажи что ждет меня в плане здоровье');
+  }
+  public async financeMagic(msg: Message) {
+    await this.getAnswer(msg, 'расскажи что ждет меня в плане денег и финансов');
+  }
+  public async workMagic(msg: Message) {
+    await this.getAnswer(msg, 'расскажи что ждет меня в плане работы');
+  }
+  public async commonMagic(msg: Message) {
+    await this.getAnswer(msg, 'расскажи что ждет меня в общих чертах в жизни');
+  }
+
+  public async requestPaymentType(msg: Message) {
+    await this.telegramOperator.bot.sendMessage(msg.chat.id, `<b>У вас не осталось попыток</b> \nЧтобы продолжить дальше выберете один из тарфов`, {
       parse_mode: 'HTML',
       reply_markup: {
         inline_keyboard: [
           [
-            { text: '🎨 Разработка дизайна', callback_data: 'design_strategy' },
-            { text: '📱 Приложения', callback_data: 'mobile_strategy' },
+            { text: '🪙 99р - 1 расклад', callback_data: 'payOne' },
           ],
           [
-
-            { text: '🌐 Разработка сайтов', callback_data: 'web_strategy' },
-            { text: '🤖 Чат-боты', callback_data: 'bot_strategy' }
+            { text: '🪙 299р - 5 раскладов', callback_data: 'payFew' },
+          ],
+          [
+            { text: '❤️‍🔥 399р - Подписка', callback_data: 'paySubscription' },
           ]
         ]
       }
-    })
+    });
   }
 
-  async botMakerBrief(msg: Message) {
-    try {
-      if (appointments.has(`${msg.chat.id}-bots`)) {
-        await this.telegramOperator.bot.sendMessage(msg.chat.id, 'Вы отставлялти заявку, пожалуйста подождите');
-        return
-      }
-      await this.telegramOperator.bot.sendMessage(msg.chat.id, STRATEGY_HEADER, {
-        parse_mode: 'HTML'
-      })
+  public async getProfile(msg: Message) {
+    const user = await this.getUser(msg);
+    const wallet = await this.userService.getUserBalance(user.telegramId);
+    const subscriptions = await this.userService.getUserSubscriptions(user.id)
+    const subscription = subscriptions[0];
+    const text = (subscription && subscription.isActive) ? `<b>У вас оформлена подписка до ${dayjs(subscription.endDate).format('DD.MM.YYYY')}</b>` : `<b>У вас осталось ${wallet.balance} попыток</b>`;
 
-      await waitSync(500)
-
-      const {answers, chat} = await this.requestQuestionSteps(msg, BOT_BRIEF_QUESTIONS);
-
-      appointments.set(`${msg.chat.id}-bots`, {answers, chat})
-      this.sendBriefTo(answers, chat)
-      await this.telegramOperator.bot.sendMessage(msg.chat.id, SUCCESS_MSG);
-
-    } catch (e) {
-      await this.telegramOperator.bot.sendMessage(msg.chat.id, ERROR_MSG)
-    }
-  }
-
-  async designMakerBrief(msg: Message) {
-    try {
-
-      if(appointments.has(`${msg.chat.id}-design`)) {
-        await this.telegramOperator.bot.sendMessage(msg.chat.id, 'Вы отставлялти заявку, пожалуйста подождите')
-        return
-      }
-
-      await this.telegramOperator.bot.sendMessage(msg.chat.id, STRATEGY_HEADER, {
-        parse_mode: 'HTML'
-      })
-
-      await waitSync(500)
-
-      const {answers, chat} = await this.requestQuestionSteps(msg, DESIGN_BRIEF_QUESTIONS);
-
-      appointments.set(`${msg.chat.id}-design`, {answers, chat})
-      this.sendBriefTo(answers, chat)
-      await this.telegramOperator.bot.sendMessage(msg.chat.id, SUCCESS_MSG);
-
-    } catch (e) {
-      await this.telegramOperator.bot.sendMessage(msg.chat.id, ERROR_MSG)
-    }
-  }
-  async mobileMakerBrief(msg: Message) {
-    try {
-
-      if (appointments.has(`${msg.chat.id}-mobile`)) {
-        await this.telegramOperator.bot.sendMessage(msg.chat.id, 'Вы отставлялти заявку, пожалуйста подождите');
-        return
-      }
-
-      await this.telegramOperator.bot.sendMessage(msg.chat.id, STRATEGY_HEADER, {
-        parse_mode: 'HTML'
-      })
-
-      await waitSync(500)
-
-      const {answers, chat} = await this.requestQuestionSteps(msg, MOBILE_BRIEF_QUESTIONS);
-
-      appointments.set(`${msg.chat.id}-mobile`, {answers, chat})
-      this.sendBriefTo(answers, chat)
-      await this.telegramOperator.bot.sendMessage(msg.chat.id, SUCCESS_MSG);
-
-    } catch (e) {
-      await this.telegramOperator.bot.sendMessage(msg.chat.id, ERROR_MSG)
-    }
-  }
-  async webSuiteMakerBrief(msg: Message) {
-    try {
-
-      if (appointments.has(`${msg.chat.id}-web`)) {
-        await this.telegramOperator.bot.sendMessage(msg.chat.id, 'Вы отставлялти заявку, пожалуйста подождите')
-        return
-      }
-      await this.telegramOperator.bot.sendMessage(msg.chat.id, STRATEGY_HEADER, {
-        parse_mode: 'HTML'
-      })
-
-      await waitSync(500)
-
-      const {answers, chat} = await this.requestQuestionSteps(msg, WEBSITE_BRIEF_QUESTIONS);
-
-      appointments.set(`${msg.chat.id}-web`, {answers, chat})
-      this.sendBriefTo(answers, chat)
-      await this.telegramOperator.bot.sendMessage(msg.chat.id, SUCCESS_MSG);
-
-    } catch (e) {
-      await this.telegramOperator.bot.sendMessage(msg.chat.id, ERROR_MSG)
-    }
-  }
-
-
-  async requestQuestionSteps(msg: Message, questions: {title: string, description?: string}[]) {
-    const answers = [];
-    for (let i = 0; i < questions.length; i++) {
-      const question = questions[i];
-      const answer = (await this.telegramOperator.requestQuestion(msg, `<b>Шаг ${i+1}/${questions.length}:</b>\n<b>${question.title}</b> ${question.description}\n`, {
-        parse_mode: 'HTML'
-      })).text;
-
-      answers.push({
-        question: `${question.title ?? ''} ${question.description ?? ''}`.trim(),
-        answer,
-      })
-    }
-
-    return {
-      answers,
-      chat: msg.chat
-    }
-  }
-
-  public sendBriefTo(answers: {question: string, answer: string}[], chat: Chat) {
-    this.telegramOperator.bot.sendMessage(this.appointmentChatId, `
-      <b>Новая заявка</b>
-      \nОт: ${chat.username}
-      ${answers.map((answer, index) => `${index !== 0 ? '\n\n' : '\n'}<b>${answer.question}</b>:\n${answer.answer}`).join('')}
-      \n
-   `, {
-      message_thread_id: +this.appointmentThreadId,
+    await this.telegramOperator.bot.sendMessage(msg.chat.id, `${text} \nМожете выбрать один из тарифов`, {
       parse_mode: 'HTML',
       reply_markup: {
         inline_keyboard: [
-          [{
-            text: 'Чат с килентом',
-            url: `https://t.me/${this.botName}?start=startDialog=${chat.id}`
-          }]
+          [
+            { text: '🪙 99р - 1 расклад', callback_data: 'payOne' },
+          ],
+          [
+            { text: '🪙 299р - 5 раскладов', callback_data: 'payFew' },
+          ],
+          [
+            { text: '❤️‍🔥 399р - Подписка', callback_data: 'paySubscription' },
+          ]
         ]
       }
-    })
+    });
   }
+
+  public async getTariffs(msg: Message) {
+    await this.telegramOperator.bot.sendMessage(msg.chat.id, `<b>У вас не осталось попыток</b> \nЧтобы продолжить дальше выберете один из тарфов`, {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: '🪙 99р - 1 расклад', callback_data: 'payOne' },
+          ],
+          [
+            { text: '🪙 299р - 5 раскладов', callback_data: 'payFew' },
+          ],
+          [
+            { text: '❤️‍🔥 399р - Подписка', callback_data: 'paySubscription' },
+          ]
+        ]
+      }
+    });
+  }
+  public async cardOfDay(msg: Message) {
+    const card = TaroService.getRandomCard();
+    const userInfo = await this.telegramOperator.bot.getChat(msg.chat.id);
+    //@ts-ignore
+    const birthDay = userInfo?.birthdate ? JSON.stringify(userInfo.birthdate) : 'не указана'
+    const description = `
+    Меня зовут ${userInfo.first_name} информация обо мне ${userInfo.bio} 
+    Моя дата рождения: ${birthDay}`;
+    const cardsWaitMessage = await this.telegramOperator.bot.sendMessage(msg.chat.id, `🃏 ${card.name} (${card.type}) ${card.inverted ? '(Перевернута)' : ''}\n\n— <b>Описание карты</b> —\n${card.description}`, {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: 'Главное меню', callback_data: 'menu' },
+          ]
+        ]
+      }
+    });
+    const waitingText = await this.telegramOperator.bot.sendMessage(msg.chat.id, 'Подожди, сейчас подготовлю расшифровку..');
+
+    try {
+      const response = await OpenAiService.getAnswer(requestQuestion([card], 'Карта дня что жедт меня сегодня', description));
+      await this.telegramOperator.bot.deleteMessage(waitingText.chat.id, waitingText.message_id);
+
+
+      const jsonResponse = JSON.parse(response) as QuestionResponseDto;
+
+      const cardsResponse = jsonResponse.cards.map(card => `🃏 <b>${card.name} (${card.type}) ${card.inverted ? '(Перевернута)' : ''}</b>\n\n— <b>Описание карты</b> —\n${card.description}\n\n— <b>Расшифровка</b>  —\n${card.answer}`).join('\n\n');
+      await this.telegramOperator.bot.editMessageText(`${cardsResponse}\n\n<b>✨Общая расшифровка: </b>\n${jsonResponse.answer} \n\n🕊<b>Совет:</b> \n${jsonResponse.advice}`, {chat_id: cardsWaitMessage.chat.id, message_id: cardsWaitMessage.message_id, parse_mode: 'HTML',  reply_markup: {
+          inline_keyboard: [
+            [
+              { text: 'Главное меню', callback_data: 'menu' },
+            ]
+          ]
+        }});
+    } catch (e) {
+      console.error(e);
+      await this.telegramOperator.bot.deleteMessage(waitingText.chat.id, waitingText.message_id);
+      await this.telegramOperator.bot.sendMessage(msg.chat.id, 'Произошла ошибка, попробуйте ещё раз позже 😢');
+    }
+  }
+
+  public async askQuestion(msg: Message) {
+    try {
+      const question = await this.telegramOperator.requestQuestion(msg,
+        '🌙  Сформулируй свой вопрос подробно… ведь судьба шепчет лишь тем, кто умеет слушать её внимательно.');
+      await this.getAnswer(msg, question.text);
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  public async getAnswer(msg: Message, theme: string) {
+    const user = await this.getUser(msg);
+    const wallet = await this.userService.getUserBalance(user.telegramId);
+
+    if (wallet.balance < 1) {
+      return await this.requestPaymentType(msg);
+    }
+
+    const cards = TaroService.getRandomCards();
+    const userInfo = await this.telegramOperator.bot.getChat(msg.chat.id);
+
+    const cardsWaitMessage = await this.telegramOperator.bot.sendMessage(msg.chat.id, `<b>Ваши карты:</b> \n\n${cards.map((card) => `🃏 ${card.name} (${card.type}) ${card.inverted ? '(Перевернута)' : ''}\n\n— <b>Описание карты</b> —\n${card.description}`).join('\n\n')}`, {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: 'Главное меню', callback_data: 'menu' },
+          ]
+        ]
+      }
+    });
+    const waitingText = await this.telegramOperator.bot.sendMessage(msg.chat.id, 'Подожди, сейчас подготовлю расшифровку..');
+    //@ts-ignore
+    const birthDay = userInfo?.birthdate ? JSON.stringify(userInfo.birthdate) : 'не указана'
+    const description = `
+    Меня зовут ${userInfo.first_name} информация обо мне ${userInfo.bio} 
+    Моя дата рождения: ${birthDay}`;
+
+    try {
+      const response = await OpenAiService.getAnswer(requestQuestion(cards, theme, description));
+      await this.telegramOperator.bot.deleteMessage(waitingText.chat.id, waitingText.message_id);
+      // await this.telegramOperator.bot.deleteMessage(cardsWaitMessage.chat.id, cardsWaitMessage.message_id);
+
+      const jsonResponse = JSON.parse(response) as QuestionResponseDto;
+
+      const cardsResponse = jsonResponse.cards.map(card => `🃏 <b>${card.name} (${card.type}) ${card.inverted ? '(Перевернута)' : ''}</b>\n\n— <b>Описание карты</b> —\n${card.description}\n\n— <b>Расшифровка</b>  —\n${card.answer}`).join('\n\n');
+      await this.telegramOperator.bot.editMessageText(`${cardsResponse}\n\n<b>✨Общая расшифровка: </b>\n${jsonResponse.answer} \n\n🕊<b>Совет:</b> \n${jsonResponse.advice}`, {chat_id: cardsWaitMessage.chat.id, message_id: cardsWaitMessage.message_id, parse_mode: 'HTML',  reply_markup: {
+          inline_keyboard: [
+            [
+              { text: 'Главное меню', callback_data: 'menu' },
+            ]
+          ]
+        }});
+      await this.userService.updateBalance(user.id, wallet.balance - 1);
+    } catch (e) {
+      console.error(e);
+      await this.telegramOperator.bot.deleteMessage(waitingText.chat.id, waitingText.message_id);
+      await this.telegramOperator.bot.sendMessage(msg.chat.id, 'Произошла ошибка, попробуйте ещё раз позже 😢');
+    }
+  }
+
 
   onModuleInit(): any {
     this.initialization();

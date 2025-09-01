@@ -2,6 +2,7 @@ version: "3.7"
 services:
   server:
     container_name: server
+    build: .
     restart: always
     volumes:
     - ./src:/app/src

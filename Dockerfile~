@@ -1,11 +1,27 @@
-FROM node:20.12.2
+# 1) Устанавливаем все deps (включая dev)
+FROM node:20.12.2 AS deps
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
 
-WORKDIR /
-
-COPY . /
-
-RUN npm ci --legacy-peer-deps
-
+# 2) Сборка + prisma generate
+FROM node:20.12.2 AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+# Нужны исходники и схема до generate
+COPY . .
+# Важно: схема должна лежать в ./prisma/schema.prisma
+RUN npx prisma generate
 RUN npm run build
+# 3) Обрезаем dev-зависимости после сборки
+RUN npm prune --omit=dev
 
-CMD ["npm" , "run" , "start:prod"]
+# 4) Прод-образ: только то, что нужно в рантайме
+FROM node:20.12.2 AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/dist ./dist
+# Схему и исходники не копируем — Prisma Client уже сгенерен
+CMD ["node", "dist/src/main.js"]

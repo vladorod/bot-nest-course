@@ -1,12 +1,12 @@
-version: "3.7"
+version: '3.8'
+
 services:
-  server:
-    container_name: server
+  back:
     build: .
-    restart: always
-    volumes:
-    - ./src:/app/src
+    environment:
+      # на случай, если .env лежит рядом с compose
+      - DATABASE_URL=${DATABASE_URL}
+      - NODE_ENV=production
+      - PORT=3000
     ports:
-      - "${PORT:-3001}:3001"
-
-
+      - "${PORT}:3000"

@@ -5,6 +5,7 @@ import { BotService } from './service/bots/bot.service';
 import { TelegramOperator } from './service/bots/operator/telegram';
 import { PrismaService } from '../prisma/prisma.service';
 import { UserService } from './service/user/user.service';
+import { CartOfDayService } from './service/cartOfDay/cartOfDay.service';
 export const isDev =
   process.env.USERNAME === 'effec' || process.env.USERNAME === 'Gaming';
 
@@ -18,7 +19,7 @@ if (isDev) {
       isGlobal: true, // чтобы переменные окружения были доступны во всей программе
     }),
   ],
-  providers: [BotService, TelegramOperator, PrismaService, UserService],
+  providers: [BotService, TelegramOperator, PrismaService, UserService, CartOfDayService],
   exports: [PrismaService]
 })
 

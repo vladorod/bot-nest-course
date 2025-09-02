@@ -1,5 +1,3 @@
-import * as fs from 'fs';
-import { Card } from '../../utils';
 import { TARO_CARDS } from './taro.cards';
 
 class TaroService {

@@ -9,7 +9,8 @@ import TaroService from './taro.service';
 import OpenAiService from '../../openai-service/openAi.service';
 import { QuestionResponseDto, requestQuestion } from '../../utils';
 import { UserService } from '../user/user.service';
-import dayjs from 'dayjs';
+import * as dayjs from 'dayjs';
+import { CartOfDayService } from '../cartOfDay/cartOfDay.service';
 
 
 
@@ -21,7 +22,7 @@ export class BotService implements OnModuleInit {
   public appointmentChatId : string;
   public botName : string;
 
-  constructor(private readonly telegramOperator: TelegramOperator, private readonly userService: UserService)  {}
+  constructor(private readonly telegramOperator: TelegramOperator, private readonly userService: UserService, private readonly cartOfDayService: CartOfDayService)  {}
 
   initialization() {
     this.appointmentThreadId = process.env.TELEGRAM_APPOINTMENTS_THREAD_ID;
@@ -48,7 +49,7 @@ export class BotService implements OnModuleInit {
     this.telegramOperator.addCommand('common_magic', (msg) => this.commonMagic(msg));
     this.telegramOperator.addCommand('work_magic', (msg) => this.workMagic(msg));
     this.telegramOperator.addCommand('ask_question', (msg) => this.askQuestion(msg));
-    this.telegramOperator.addCommand('cart_of_day', (msg) => this.cardOfDay(msg));
+    this.telegramOperator.addCommand('cart_of_day', (msg) =>  this.cardOfDay(msg));
 
 
 
@@ -282,45 +283,60 @@ export class BotService implements OnModuleInit {
     });
   }
   public async cardOfDay(msg: Message) {
-    const card = TaroService.getRandomCard();
-    const userInfo = await this.telegramOperator.bot.getChat(msg.chat.id);
-    //@ts-ignore
-    const birthDay = userInfo?.birthdate ? JSON.stringify(userInfo.birthdate) : 'не указана'
-    const description = `
+    try {
+      const user = await this.getUser(msg);
+      const cardOfDay = await this.cartOfDayService.getCardOfDay(user.id);
+
+      if (cardOfDay) {
+        await this.telegramOperator.bot.sendMessage(msg.chat.id, cardOfDay.text, {parse_mode: 'HTML'});
+      } else {
+        const card = TaroService.getRandomCard();
+        const userInfo = await this.telegramOperator.bot.getChat(msg.chat.id);
+        //@ts-ignore
+        const birthDay = userInfo?.birthdate ? JSON.stringify(userInfo.birthdate) : 'не указана'
+        const description = `
     Меня зовут ${userInfo.first_name} информация обо мне ${userInfo.bio} 
     Моя дата рождения: ${birthDay}`;
-    const cardsWaitMessage = await this.telegramOperator.bot.sendMessage(msg.chat.id, `🃏 ${card.name} (${card.type}) ${card.inverted ? '(Перевернута)' : ''}\n\n— <b>Описание карты</b> —\n${card.description}`, {
-      parse_mode: 'HTML',
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: 'Главное меню', callback_data: 'menu' },
-          ]
-        ]
-      }
-    });
-    const waitingText = await this.telegramOperator.bot.sendMessage(msg.chat.id, 'Подожди, сейчас подготовлю расшифровку..');
-
-    try {
-      const response = await OpenAiService.getAnswer(requestQuestion([card], 'Карта дня что жедт меня сегодня', description));
-      await this.telegramOperator.bot.deleteMessage(waitingText.chat.id, waitingText.message_id);
-
-
-      const jsonResponse = JSON.parse(response) as QuestionResponseDto;
-
-      const cardsResponse = jsonResponse.cards.map(card => `🃏 <b>${card.name} (${card.type}) ${card.inverted ? '(Перевернута)' : ''}</b>\n\n— <b>Описание карты</b> —\n${card.description}\n\n— <b>Расшифровка</b>  —\n${card.answer}`).join('\n\n');
-      await this.telegramOperator.bot.editMessageText(`${cardsResponse}\n\n<b>✨Общая расшифровка: </b>\n${jsonResponse.answer} \n\n🕊<b>Совет:</b> \n${jsonResponse.advice}`, {chat_id: cardsWaitMessage.chat.id, message_id: cardsWaitMessage.message_id, parse_mode: 'HTML',  reply_markup: {
-          inline_keyboard: [
-            [
-              { text: 'Главное меню', callback_data: 'menu' },
+        const cardsWaitMessage = await this.telegramOperator.bot.sendMessage(msg.chat.id, `🃏 ${card.name} (${card.type}) ${card.inverted ? '(Перевернута)' : ''}\n\n— <b>Описание карты</b> —\n${card.description}`, {
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: 'Главное меню', callback_data: 'menu' },
+              ]
             ]
-          ]
-        }});
+          }
+        });
+        const waitingText = await this.telegramOperator.bot.sendMessage(msg.chat.id, 'Подожди, сейчас подготовлю расшифровку..');
+
+        try {
+          const response = await OpenAiService.getAnswer(requestQuestion([card], 'Карта дня что жедт меня сегодня', description));
+          await this.telegramOperator.bot.deleteMessage(waitingText.chat.id, waitingText.message_id);
+
+
+          const jsonResponse = JSON.parse(response) as QuestionResponseDto;
+
+          const cardsResponse = jsonResponse.cards.map(card => `🃏 <b>${card.name} (${card.type}) ${card.inverted ? '(Перевернута)' : ''}</b>\n\n— <b>Описание карты</b> —\n${card.description}\n\n— <b>Расшифровка</b>  —\n${card.answer}`).join('\n\n');
+          const cardStringResponse = `<b>Карта дня ${dayjs().format('DD.MM.YYYY')}</b>\n\n${cardsResponse}\n\n<b>✨Общая расшифровка: </b>\n${jsonResponse.answer} \n\n🕊<b>Совет:</b> \n${jsonResponse.advice}`
+          await this.telegramOperator.bot.editMessageText(cardStringResponse, {chat_id: cardsWaitMessage.chat.id, message_id: cardsWaitMessage.message_id, parse_mode: 'HTML',  reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: 'Главное меню', callback_data: 'menu' },
+                ]
+              ]
+            }});
+          await this.cartOfDayService.createCartOfDay(cardStringResponse, user.id);
+        } catch (e) {
+          console.error(e);
+          await this.telegramOperator.bot.deleteMessage(waitingText.chat.id, waitingText.message_id);
+          await this.telegramOperator.bot.sendMessage(msg.chat.id, 'Произошла ошибка, попробуйте ещё раз позже 😢');
+        }
+      }
     } catch (e) {
       console.error(e);
-      await this.telegramOperator.bot.deleteMessage(waitingText.chat.id, waitingText.message_id);
-      await this.telegramOperator.bot.sendMessage(msg.chat.id, 'Произошла ошибка, попробуйте ещё раз позже 😢');
     }
+
+
   }
 
   public async askQuestion(msg: Message) {

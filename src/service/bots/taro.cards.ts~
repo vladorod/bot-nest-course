@@ -1,4 +1,4 @@
-[
+export const TARO_CARDS = [
   {
     "id": "539aebf1-5685-42fd-8a5b-f6c59f331c90",
     "name": "Шут",

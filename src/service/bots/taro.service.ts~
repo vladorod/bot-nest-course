@@ -8,7 +8,7 @@ class TaroService {
     const randomNumbers = new Set<number>();
 
     while (randomNumbers.size < 3) {
-      const randomNumber = Math.floor(Math.random() * TARO_CARDS.length);
+      const randomNumber = Math.floor(Math.random() * jsonCards.length);
       randomNumbers.add(randomNumber);
     }
 

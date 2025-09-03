@@ -30,8 +30,8 @@ async function bootstrap() {
       'bearer',
     )
     .addSecurityRequirements('bearer')
+    .addServer('https://taro.vladbika.ru')
     .addServer('http://localhost:3000')
-    .addServer('https://b337b522b47f.ngrok-free.app')
     .build();
 
   app.setGlobalPrefix('api/v1');

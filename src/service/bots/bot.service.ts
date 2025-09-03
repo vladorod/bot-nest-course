@@ -11,9 +11,13 @@ import { QuestionResponseDto, requestQuestion } from '../../utils';
 import { UserService } from '../user/user.service';
 import * as dayjs from 'dayjs';
 import { CartOfDayService } from '../cartOfDay/cartOfDay.service';
+import { YandexMetrika } from '../metrica/metrica.service';
+import { PaymentService } from '../payments/payment.service';
+import { Currency, YooNotificationDto } from '../payments/payment.dto';
+import { PaymentEventBus } from '../../main';
 
 
-
+const metrica = new YandexMetrika(process.env.METRIKA_COUNTER_ID);
 const dialogs = new Set();
 
 @Injectable()
@@ -22,7 +26,7 @@ export class BotService implements OnModuleInit {
   public appointmentChatId : string;
   public botName : string;
 
-  constructor(private readonly telegramOperator: TelegramOperator, private readonly userService: UserService, private readonly cartOfDayService: CartOfDayService)  {}
+  constructor(private readonly telegramOperator: TelegramOperator, private readonly userService: UserService, private readonly cartOfDayService: CartOfDayService, private readonly paymentService: PaymentService)  {}
 
   initialization() {
     this.appointmentThreadId = process.env.TELEGRAM_APPOINTMENTS_THREAD_ID;
@@ -50,8 +54,10 @@ export class BotService implements OnModuleInit {
     this.telegramOperator.addCommand('work_magic', (msg) => this.workMagic(msg));
     this.telegramOperator.addCommand('ask_question', (msg) => this.askQuestion(msg));
     this.telegramOperator.addCommand('cart_of_day', (msg) =>  this.cardOfDay(msg));
-
-
+    this.telegramOperator.addCommand('payOne', (msg) =>  this.payOne(msg));
+    this.telegramOperator.addCommand('payFew', (msg) =>  this.payFew(msg));
+    this.telegramOperator.addCommand('paySubscription', (msg) =>  this.paySubscription(msg));
+    this.telegramOperator.addCommand('profile', (msg) =>  this.getProfile(msg));
 
     this.telegramOperator.updateCallbackQueryCommands();
   }
@@ -239,27 +245,201 @@ export class BotService implements OnModuleInit {
     });
   }
 
+  public async payOne(msg: Message) {
+     await this.paymentPoints(msg, 99, '1 Расклад');
+  }
+
+  public async paymentSubscription(msg: Message, amount: number, description: string = `Подписка на телеграм бота @${process.env.BOT_NAME}`) {
+    const user = await this.getUser(msg);
+    const data = await this.paymentService.createPayment({
+      amount: {
+        value: amount.toFixed(2),
+        currency: Currency.RUB
+      },
+      description,
+      confirmation: {
+        type: "redirect",
+        return_url: `https://t.me/${process.env.BOT_NAME}`
+      },
+      capture: true,
+      metadata: {
+        userId: user.id,
+        type: description,
+      }
+    })
+    const subscriptions = await this.userService.getUserSubscriptions(user.id);
+
+    if (subscriptions.length > 0) {
+      return this.telegramOperator.bot.sendMessage(msg.chat.id, `У вас уже есть подписка`);
+    }
+
+    const paymentMsg = await this.telegramOperator.bot.sendMessage(msg.chat.id, '<b>Выберите способ оплаты</b>', {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: 'Юкасса', url: data.confirmation.confirmation_url, pay: true },
+          ]
+        ]
+      }
+    })
+
+    const paymentHandler = async (_data: YooNotificationDto) => {
+      if (_data.event === 'payment.succeeded') {
+        try {
+          await this.telegramOperator.bot.deleteMessage(msg.chat.id, paymentMsg.message_id);
+        } catch (e) {
+          console.error(e)
+        }
+        await this.userService.createSubscription(user.id);
+        await this.telegramOperator.bot.sendMessage(msg.chat.id, 'Оплата прошла успешно', {
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: 'Главное меню', callback_data: 'menu' }
+              ],
+              [
+                { text: '👤 Профиль', callback_data: 'profile' },
+              ]
+            ]
+          }
+        })
+
+        PaymentEventBus.off(`payment_${data.id}`,paymentHandler);
+      } else if (_data.event === 'payment.canceled') {
+        try {
+          await this.telegramOperator.bot.deleteMessage(msg.chat.id, paymentMsg.message_id);
+        } catch (e) {
+          console.error(e)
+        }
+        await this.telegramOperator.bot.sendMessage(msg.chat.id, 'Оплата отменена', {
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: 'Главное меню', callback_data: 'menu' }
+              ],
+              [
+                { text: '👤 Профиль', callback_data: 'profile' },
+              ]
+            ]
+          }
+        })
+        PaymentEventBus.off(`payment_${data.id}`,paymentHandler);
+      }
+    }
+
+    PaymentEventBus.on(`payment_${data.id}`,paymentHandler)
+  }
+
+  public async paymentPoints(msg: Message, amount: number, description: string, counter: number = 1) {
+    const user = await this.getUser(msg);
+    const data = await this.paymentService.createPayment({
+      amount: {
+        value: amount.toFixed(2),
+        currency: Currency.RUB
+      },
+      description,
+      confirmation: {
+        type: "redirect",
+        return_url: `https://t.me/${process.env.BOT_NAME}`
+      },
+      capture: true,
+      metadata: {
+        userId: user.id,
+        type: description,
+      }
+    })
+
+    const paymentMsg = await this.telegramOperator.bot.sendMessage(msg.chat.id, '<b>Выберите способ оплаты</b>', {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: 'Юкасса', url: data.confirmation.confirmation_url, pay: true },
+          ]
+        ]
+      }
+    })
+
+    const paymentHandler = async (_data: YooNotificationDto) => {
+      if (_data.event === 'payment.succeeded') {
+        const wallet = await this.userService.getUserBalance(user.telegramId);
+        await this.telegramOperator.bot.deleteMessage(msg.chat.id, paymentMsg.message_id);
+        await this.userService.updateBalance(user.id, wallet.balance + counter);
+        await this.telegramOperator.bot.sendMessage(msg.chat.id, 'Оплата прошла успешно', {
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: 'Главное меню', callback_data: 'menu' }
+              ],
+              [
+                { text: '👤 Профиль', callback_data: 'profile' },
+              ]
+            ]
+          }
+        })
+
+        PaymentEventBus.off(`payment_${data.id}`,paymentHandler);
+      } else if (_data.event === 'payment.canceled') {
+        await this.telegramOperator.bot.deleteMessage(msg.chat.id, paymentMsg.message_id);
+        await this.telegramOperator.bot.sendMessage(msg.chat.id, 'Оплата отменена', {
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: 'Главное меню', callback_data: 'menu' }
+              ],
+              [
+                { text: '👤 Профиль', callback_data: 'profile' },
+              ]
+            ]
+          }
+        })
+        PaymentEventBus.off(`payment_${data.id}`,paymentHandler);
+      }
+    }
+
+    PaymentEventBus.on(`payment_${data.id}`,paymentHandler)
+  }
+
+  public async payFew(msg: Message) {
+    await this.paymentPoints(msg, 299, '5 Раскладов', 5);
+  }
+
+  public async paySubscription(msg: Message) {
+    await this.paymentSubscription(msg, 399);
+  }
+
   public async getProfile(msg: Message) {
     const user = await this.getUser(msg);
     const wallet = await this.userService.getUserBalance(user.telegramId);
     const subscriptions = await this.userService.getUserSubscriptions(user.id)
     const subscription = subscriptions[0];
-    const text = (subscription && subscription.isActive) ? `<b>У вас оформлена подписка до ${dayjs(subscription.endDate).format('DD.MM.YYYY')}</b>` : `<b>У вас осталось ${wallet.balance} попыток</b>`;
+    const text = (subscription && subscription.isActive) ? `<b>У вас оформлена подписка до ${dayjs(subscription.endDate).format('DD.MM.YYYY')}</b>` : `<b>У вас осталось ${wallet.balance} попыток\nМожете выбрать один из тарифов</b>`;
+    let inline_keyboard = [];
 
-    await this.telegramOperator.bot.sendMessage(msg.chat.id, `${text} \nМожете выбрать один из тарифов`, {
+    if (subscriptions.length === 0) {
+      inline_keyboard = [
+        [
+          { text: '🪙 99р - 1 расклад', callback_data: 'payOne' },
+        ],
+        [
+          { text: '🪙 299р - 5 раскладов', callback_data: 'payFew' },
+        ],
+        [
+          { text: '❤️‍🔥 399р - Подписка', callback_data: 'paySubscription' },
+        ]
+      ]
+    }
+
+
+    await this.telegramOperator.bot.sendMessage(msg.chat.id, `${text}`, {
       parse_mode: 'HTML',
       reply_markup: {
-        inline_keyboard: [
-          [
-            { text: '🪙 99р - 1 расклад', callback_data: 'payOne' },
-          ],
-          [
-            { text: '🪙 299р - 5 раскладов', callback_data: 'payFew' },
-          ],
-          [
-            { text: '❤️‍🔥 399р - Подписка', callback_data: 'paySubscription' },
-          ]
-        ]
+        inline_keyboard,
       }
     });
   }

@@ -1,0 +1,9 @@
+import { Controller, Post } from '@nestjs/common';
+
+@Controller('creditTransaction')
+export class CreditTransactionController {
+  @Post("payments/yookassa")
+  async yookassaWebhook() {
+    
+  }
+}

@@ -9,6 +9,7 @@ import { useContainer } from 'class-validator';
 import express from 'express';
 import { ValidationPipe } from '@nestjs/common';
 import { EventEmitter } from 'events';
+import * as process from 'process';
 
 dotenv.config();
 export const PaymentEventBus = new EventEmitter();
@@ -40,6 +41,6 @@ async function bootstrap() {
   SwaggerModule.setup('swagger', app, document);
 
 
-  await app.listen(3001);
+  await app.listen(process.env.PORT || 3000);
 }
 bootstrap();

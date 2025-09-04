@@ -576,9 +576,7 @@ export class BotService implements OnModuleInit {
             ]
           ]
         }});
-      if (subscriptions.length === 0) {
-        await this.userService.updateBalance(user.id, wallet.balance - 1);
-      }
+      await this.userService.updateBalance(user.id, wallet.balance - 1);
     } catch (e) {
       console.error(e);
       await this.telegramOperator.bot.editMessageText(DEFAULT_MSG + `\n\nПри расшефровки произошла ошибка, попробуйте ещё раз позже 😢`, {

@@ -104,7 +104,8 @@ export class TelegramOperator implements OnModuleInit {
         lineKeyboard && lineKeyboard[0].map((button) => button.callback_data);
 
       const buttonHandler = (callbackQuery: CallbackQuery) => {
-        if (callbackQuery.message.chat.id === msg.from.id && buttons.length > 0) {
+          console.log(callbackQuery.message.chat.id === msg.from.id)
+        if (callbackQuery.message.chat.id === msg.from.id) {
           const isCommand = Object.keys(
             this.callbackQueryCommands.callbackQueryCommands,
           ).find((command) => callbackQuery.data === command);
@@ -134,14 +135,14 @@ export class TelegramOperator implements OnModuleInit {
         }
       };
 
-
+      if (buttons && buttons.length > 0) {
+        this.bot.on('callback_query', buttonHandler);
+      }
 
       await this.bot.sendMessage(msg.chat.id, text, {
         ...options,
         reply_markup: { remove_keyboard: true, ...options?.reply_markup },
       });
-
-      this.bot.on('callback_query', buttonHandler);
       this.bot.on('message', handler);
     });
   }

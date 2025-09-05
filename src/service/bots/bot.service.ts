@@ -161,10 +161,7 @@ export class BotService implements OnModuleInit {
           ]
         }
       })
-      void metrica.pageview({
-        pageUrl: 'https://taro.vladbika.ru',
-        clientId: user.id,
-      })
+  
     } catch (e) {
       console.error(e)
     }

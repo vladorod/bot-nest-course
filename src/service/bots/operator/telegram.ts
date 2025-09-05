@@ -103,24 +103,9 @@ export class TelegramOperator implements OnModuleInit {
       const buttons =
         lineKeyboard && lineKeyboard[0].map((button) => button.callback_data);
 
-      const buttonHandler = (callbackQuery: CallbackQuery) => {
-        if (callbackQuery.message.chat.id === msg.from.id && buttons.length > 0) {
-          const isCommand = Object.keys(
-            this.callbackQueryCommands.callbackQueryCommands,
-          ).find((command) => callbackQuery.data === command);
 
-          if (!isCommand) {
-            res({ ...callbackQuery.message, ...{ text: callbackQuery.data } });
-            this.bot.answerCallbackQuery(callbackQuery.id);
-            this.bot.removeListener('callback_query', buttonHandler);
-          }
-        } else {
-          this.bot.removeListener('callback_query', buttonHandler);
-        }
-      };
 
-      const handler = (userMsg: Message) => {
-        console.log(userMsg.from.id === msg.chat.id)
+      const handler = (userMsg: Message) => {70
         if (userMsg.from.id === msg.chat.id) {
           if (userMsg.text.match(/^\/\w+/)) {
             rej(userMsg);
@@ -134,6 +119,23 @@ export class TelegramOperator implements OnModuleInit {
         }
       };
 
+      const buttonHandler = (callbackQuery: CallbackQuery) => {
+
+        if (callbackQuery.message.chat.id === msg.from.id && buttons.length > 0) {
+          const isCommand = Object.keys(
+            this.callbackQueryCommands.callbackQueryCommands,
+          ).find((command) => callbackQuery.data === command);
+
+          if (!isCommand) {
+            res({ ...callbackQuery.message, ...{ text: callbackQuery.data } });
+            this.bot.answerCallbackQuery(callbackQuery.id);
+            this.bot.removeListener('callback_query', buttonHandler);
+          }
+        } else {
+          this.bot.removeListener('callback_query', buttonHandler);
+          this.bot.removeListener('message', handler);
+        }
+      };
 
 
       await this.bot.sendMessage(msg.chat.id, text, {

@@ -19,8 +19,8 @@ async function bootstrap() {
   if (process.env.NODE_ENV === 'development') {
 
     const config = new DocumentBuilder()
-      .setTitle('Taro API')
-      .setDescription('Бэкенд для контроля бота карт таро (оплата)')
+      .setTitle('Budget API')
+      .setDescription('Бэкенд для контроля бюджета: направления, бюджеты, транзакции, сводка')
       .setVersion('1.0.0')
       .addBearerAuth(
         {

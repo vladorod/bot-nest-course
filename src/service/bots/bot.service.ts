@@ -15,11 +15,46 @@ import { YandexMetrika } from '../metrica/metrica.service';
 import { PaymentService } from '../payments/payment.service';
 import { Currency, YooNotificationDto } from '../payments/payment.dto';
 import { PaymentEventBus } from '../../main';
+import { GA4Service } from '../firebase-analytics.service';
+import { createHash } from 'crypto';
 
 
-const metrica = new YandexMetrika(process.env.METRIKA_COUNTER_ID, process.env.METRIKA_API_KEY);
+
+const firebaseConfig = {
+  apiKey: "AIzaSyC2qx2TKBRBeFQROFoGX1bWSq3T_OohkIM",
+  authDomain: "taro-bbc0f.firebaseapp.com",
+  projectId: "taro-bbc0f",
+  storageBucket: "taro-bbc0f.firebasestorage.app",
+  messagingSenderId: "103200457959",
+  appId: "1:103200457959:web:aad2f71a8c9856e9f88e42",
+  measurementId: "G-KTYYN02N88"
+};
+
+const ga4 = new GA4Service(firebaseConfig.measurementId, "9E-o5Z8bTTGq0KpFTBAwOQ");
+
 const dialogs = new Set();
 
+const createSessionId = (telegramId: number) => {
+  const date = dayjs().format('YYYY-MM-DD:hh')
+  const data = `${telegramId}-${date}`;
+  const hash = createHash("md5").update(data).digest("hex");
+  return parseInt(hash.slice(0, 12), 16);
+};
+
+const getPage = (title: string, msg: Message, userId: string) => ({
+  name: 'page_view',
+  userId: userId,
+  params: {
+    page_location: `https://taro.vladbika.ru/${title}`,
+    page_title: title,
+    page_referrer: 'https://taro.vladbika.ru/',
+    ga_session_id: createSessionId(msg.chat.id),
+    user_id: userId,
+    ga_session_number: 1,
+    session_engaged: 1,
+    engagement_time_msec: 1
+  }
+})
 @Injectable()
 export class BotService implements OnModuleInit {
   public appointmentThreadId : string;
@@ -63,6 +98,7 @@ export class BotService implements OnModuleInit {
   }
 
   async startDialog(employMsg: Message) {
+
     try {
       const query = new URL(`https://t.me${employMsg.text.replace(' ', '?')}`).searchParams
       const chatId = query.get('startDialog');
@@ -143,7 +179,14 @@ export class BotService implements OnModuleInit {
 
   async mainMenu(msg: Message) {
     try {
-      const user = await this.getUser(msg);
+      const utm_find = msg.text.match("utm_")
+
+      if (utm_find) {
+         const utm_marker = msg.text.slice(utm_find.index, msg.text.length)?.replace('utm_', '');
+         this.sendToAnalytics(msg, 'main_menu_utm', 'main_menu', `Пользователь пришел из ${utm_marker}`);
+      }
+
+      this.sendToAnalytics(msg, 'main_menu', 'main_menu', 'Пользователь в главном меню');
 
       await this.telegramOperator.requestQuestion(msg, GREETING, {
         parse_mode: 'HTML',
@@ -161,7 +204,7 @@ export class BotService implements OnModuleInit {
           ]
         }
       })
-  
+
     } catch (e) {
       console.error(e)
     }
@@ -185,6 +228,7 @@ export class BotService implements OnModuleInit {
 
   public async makeSchedule(msg: Message) {
     try {
+      this.sendToAnalytics(msg, 'make_schedule', 'make_schedule', 'Пользователь ввыберает расклад');
       await this.telegramOperator.requestQuestion(msg, MAKE_SCHEDULE_TITLE, {
         parse_mode: 'HTML',
         reply_markup: {
@@ -213,22 +257,28 @@ export class BotService implements OnModuleInit {
   }
 
   public async relationshipMagic(msg: Message) {
+    this.sendToAnalytics(msg, 'relationship_magic', 'relationship_magic', 'Расклад на отношения');
     await this.getAnswer(msg, 'расскажи что ждет меня в плане отношений');
   }
   public async healthMagic(msg: Message) {
+    this.sendToAnalytics(msg, 'health_magic', 'health_magic', 'Расклад на здоровье');
     await this.getAnswer(msg, 'расскажи что ждет меня в плане здоровье');
   }
   public async financeMagic(msg: Message) {
+    this.sendToAnalytics(msg, 'finance_magic', 'finance_magic', 'Расклад на финансы');
     await this.getAnswer(msg, 'расскажи что ждет меня в плане денег и финансов');
   }
   public async workMagic(msg: Message) {
+    this.sendToAnalytics(msg, 'work_magic', 'work_magic', 'Расклад на работу');
     await this.getAnswer(msg, 'расскажи что ждет меня в плане работы');
   }
   public async commonMagic(msg: Message) {
+    this.sendToAnalytics(msg, 'common_magic', 'common_magic', 'Общий расклад');
     await this.getAnswer(msg, 'расскажи что ждет меня в общих чертах в жизни');
   }
 
   public async requestPaymentType(msg: Message) {
+    this.sendToAnalytics(msg, 'request_payment', 'request_payment', 'Пользователь сделал запрос на оплату');
     await this.telegramOperator.bot.sendMessage(msg.chat.id, `<b>У вас не осталось попыток</b> \nЧтобы продолжить дальше выберете один из тарфов`, {
       parse_mode: 'HTML',
       reply_markup: {
@@ -253,6 +303,7 @@ export class BotService implements OnModuleInit {
 
   public async paymentSubscription(msg: Message, amount: number, description: string = `Подписка на телеграм бота @${process.env.BOT_NAME}`) {
     const user = await this.getUser(msg);
+    this.sendToAnalytics(msg, 'paymentSubscription', 'paymentSubscription', 'Пользователь сделал запрос на оплату Подписки');
     const data = await this.paymentService.createPayment({
       amount: {
         value: amount.toFixed(2),
@@ -307,10 +358,27 @@ export class BotService implements OnModuleInit {
             ]
           }
         })
-
+        this.sendPayment(
+          msg,
+          'paymentSubscription',
+          _data.object.id,
+          +_data.object.amount.value,
+          'subscription',
+          'Подписка',
+          'purchase_failed'
+        );
         PaymentEventBus.off(`payment_${data.id}`,paymentHandler);
       } else if (_data.event === 'payment.canceled') {
         try {
+          this.sendPayment(
+            msg,
+            'paymentSubscription',
+            _data.object.id,
+            0,
+            'subscription',
+            'Подписка',
+            'purchase_failed'
+          );
           await this.telegramOperator.bot.deleteMessage(msg.chat.id, paymentMsg.message_id);
         } catch (e) {
           console.error(e)
@@ -337,6 +405,7 @@ export class BotService implements OnModuleInit {
 
   public async paymentPoints(msg: Message, amount: number, description: string, counter: number = 1) {
     const user = await this.getUser(msg);
+    this.sendToAnalytics(msg, `payment-points-${amount}`, 'payment-points', 'Пользователь сделал запрос на оплату');
     const data = await this.paymentService.createPayment({
       amount: {
         value: amount.toFixed(2),
@@ -367,8 +436,18 @@ export class BotService implements OnModuleInit {
 
     const MIN_10 = 600000;
 
-    setTimeout(() => {
+    setTimeout(async () => {
       this.telegramOperator.bot.deleteMessage(msg.chat.id, paymentMsg.message_id);
+      this.sendToAnalytics(msg, `payment-points-${amount}`, 'payment-points', 'Пользователь отменил оплату (timeout)');
+      this.sendPayment(
+        msg,
+        'paymentSubscription',
+        data.id,
+        0,
+        'subscription',
+        'Подписка',
+        'purchase_failed'
+      );
       PaymentEventBus.off(`payment_${data.id}`,paymentHandler);
     }, MIN_10);
     const paymentHandler = async (_data: YooNotificationDto) => {
@@ -389,10 +468,28 @@ export class BotService implements OnModuleInit {
             ]
           }
         })
-
+        this.sendPayment(
+          msg,
+          'payment-points',
+          _data.object.id,
+          +_data.object.amount.value,
+          'points',
+          `${amount} Раксладов`,
+          'purchase'
+        );
+        this.sendPayment(msg, 'payment-points', _data.object.id, +_data.object.amount.value, 'points', 'Покупка раклада');
         PaymentEventBus.off(`payment_${data.id}`,paymentHandler);
       } else if (_data.event === 'payment.canceled') {
         await this.telegramOperator.bot.deleteMessage(msg.chat.id, paymentMsg.message_id);
+        this.sendPayment(
+          msg,
+          'payment-points',
+          _data.object.id,
+          0,
+          'points',
+          `${amount} Раксладов`,
+          'purchase_failed'
+        );
         await this.telegramOperator.bot.sendMessage(msg.chat.id, 'Оплата отменена', {
           parse_mode: 'HTML',
           reply_markup: {
@@ -423,6 +520,7 @@ export class BotService implements OnModuleInit {
 
   public async getProfile(msg: Message) {
     const user = await this.getUser(msg);
+    this.sendToAnalytics(msg, "profile", 'profile', 'Пользователь зашел в профиль');
     const wallet = await this.userService.getUserBalance(user.telegramId);
     const subscriptions = await this.userService.getUserSubscriptions(user.id)
     const subscription = subscriptions[0];
@@ -453,6 +551,8 @@ export class BotService implements OnModuleInit {
   }
 
   public async getTariffs(msg: Message) {
+    this.sendToAnalytics(msg, 'getTariffs', 'getTariffs', 'Пользователь запросил тарифы');
+
     await this.telegramOperator.bot.sendMessage(msg.chat.id, `<b>У вас не осталось попыток</b> \nЧтобы продолжить дальше выберете один из тарфов`, {
       parse_mode: 'HTML',
       reply_markup: {
@@ -474,7 +574,7 @@ export class BotService implements OnModuleInit {
     try {
       const user = await this.getUser(msg);
       const cardOfDay = await this.cartOfDayService.getCardOfDay(user.id);
-
+      this.sendToAnalytics(msg, 'cardOfDay', 'cardOfDay', 'Пользователь запросил карту дня');
       if (cardOfDay) {
         await this.telegramOperator.bot.sendMessage(msg.chat.id, cardOfDay.text, {parse_mode: 'HTML'});
       } else {
@@ -528,6 +628,7 @@ export class BotService implements OnModuleInit {
   }
 
   public async askQuestion(msg: Message) {
+    this.sendToAnalytics(msg, 'askQuestion', 'askQuestion', 'Пользователь задал свой вопрос');
     try {
       const question = await this.telegramOperator.requestQuestion(msg,
         '🌙  Сформулируй свой вопрос подробно… ведь судьба шепчет лишь тем, кто умеет слушать её внимательно.');
@@ -535,6 +636,73 @@ export class BotService implements OnModuleInit {
     } catch (e) {
       console.error(e)
     }
+  }
+
+  public sendToAnalytics(msg: Message, action: string, page: string, text: string) {
+    (async () => {
+      const user = await this.getUser(msg);
+      try {
+        await ga4.sendEvent([
+          {
+            name: action,
+            user_id: user.id,
+            params: {
+              userId: user.id,
+              telegramId: user.telegramId,
+              title: text,
+              page_location: `https://taro.vladbika.ru/${page}`,
+              page_title: page,
+              page_referrer: 'https://taro.vladbika.ru/',
+              ga_session_id: createSessionId(msg.chat.id),
+              source: process.env.BOT_NAME,
+            },
+          },
+          getPage(page, msg, user.id)
+        ]);
+      } catch (e){
+        console.log(e)
+      }
+    })()
+  }
+
+  public sendPayment(msg: Message, page: string, transaction_id: string, price: number, category: string, name: string, reason?: "purchase"  | "purchase_failed" | "purchase_refund" | "begin_checkout") {
+    (async () => {
+      const user = await this.getUser(msg);
+      try {
+        await ga4.sendEvent([
+          {
+              name: "purchase",
+              user_id: user.id,
+              client_id: user.id,
+              params: {
+                transaction_id: transaction_id,
+                currency: "RUB",
+                user_id: user.id,
+                client_id: user.id,
+                value: price,
+                page_location: `https://taro.vladbika.ru/${page}`,
+                page_title: page,
+                page_referrer: 'https://taro.vladbika.ru/',
+                ga_session_id: createSessionId(msg.chat.id),
+                source: process.env.BOT_NAME,
+                reason: reason ?? "purchase",// общая выручка (см. ниже про формулу)
+                items: [
+                  {
+                    item_id: name + price + category,
+                    item_name: name,
+                    price: price,
+                    quantity: 1,
+                    item_category: category
+                  }
+                ]
+              }
+            },
+          getPage(page, msg, user.id)
+        ]);
+      } catch (e){
+        console.log(e)
+      }
+    })()
   }
 
   public async getAnswer(msg: Message, theme: string) {

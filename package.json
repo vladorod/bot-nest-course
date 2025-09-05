@@ -46,6 +46,7 @@
     "crypto-js": "^4.1.1",
     "dayjs": "^1.11.18",
     "dotenv": "^16.4.7",
+    "firebase": "^12.2.1",
     "node-telegram-bot-api": "^0.64.0",
     "openai": "^4.104.0",
     "passport": "^0.7.0",

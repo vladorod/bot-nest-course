@@ -261,6 +261,9 @@ export class BotService implements OnModuleInit {
             ],
             [
               { text: '🔮 Общий', callback_data: 'common_magic' },
+            ],
+            [
+              { text: '🧙🏻‍♀️ Задать свой вопрос', callback_data: 'ask_question' },
             ]
           ]
         }
@@ -689,40 +692,43 @@ export class BotService implements OnModuleInit {
       const user = await this.getUser(msg);
       const session = getGaSession(msg.chat.id);
       try {
+        console.log('payment', transaction_id, price, category, name)
         await ga4.sendEvent([
           {
-              name: "purchase",
-              params: {
-                transaction_id: transaction_id,
-                currency: "RUB",
-                user_id: user.id,
-                client_id: user.id,
-                value: price,
-                page_location: `https://taro.vladbika.ru/${page}`,
-                page_title: page,
-                page_referrer: 'https://taro.vladbika.ru/',
-                ga_session_id: session.ga_session_id,
-                ga_session_number: session.ga_session_number,
-                source: process.env.BOT_NAME,
-                reason: reason ?? "purchase",// общая выручка (см. ниже про формулу)
-                items: [
-                  {
-                    item_id: name + price + category,
-                    item_name: name,
-                    price: price,
-                    quantity: 1,
-                    item_category: category
-                  }
-                ]
-              }
-            },
+            name: "purchase",
+            params: {
+              transaction_id: String(transaction_id),  // строка
+              currency: "RUB",
+              value: Number(price),                    // число
+              page_location: `https://taro.vladbika.ru/${page}`,
+              page_title: page,
+              page_referrer: "https://taro.vladbika.ru/",
+              ga_session_id: session.ga_session_id,
+              ga_session_number: session.ga_session_number,
+              session_engaged: 1,
+              engagement_time_msec: 1,
+              source: process.env.BOT_NAME,
+              reason: reason ?? "purchase",
+              items: [
+                {
+                  item_id: String(name + price + category),
+                  item_name: String(name),
+                  item_category: String(category),
+                  price: Number(price),                // число
+                  quantity: 1                          // число
+                }
+              ]
+            }
+          },
           getPage(page, msg, user.id)
         ],{
-          clientId: user.id.toString(),
-          userId: user.id.toString(),
-          timeZone: 'Europe/Moscow',
+          clientId: String(user.id),  // или msg.chat.id, но стабильно
+          userId: String(user.id),
+          timeZone: "Europe/Moscow",
+          // включи debug на тесте, чтобы увидеть валидацию
           debug: false
         });
+        console.log('payment end', transaction_id, price, category, name)
       } catch (e){
         console.log(e)
       }

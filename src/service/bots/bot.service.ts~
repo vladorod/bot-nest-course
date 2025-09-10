@@ -716,13 +716,8 @@ export class BotService implements OnModuleInit {
                 ]
               }
             },
-          getPage(page, msg, user.id)
-        ],{
-          clientId: user.id.toString(),
-          userId: user.id.toString(),
-          timeZone: 'Europe/Moscow',
-          debug: false
-        });
+          // getPage(page, msg, user.id)
+        ]);
       } catch (e){
         console.log(e)
       }

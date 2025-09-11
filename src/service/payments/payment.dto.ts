@@ -1,13 +1,14 @@
 // dto/yookassa.dto.ts
 import {
+  IsArray,
   IsBoolean,
   IsEnum,
-  IsIn,
+  IsIn, IsInt,
   IsISO8601,
-  IsNotEmpty,
+  IsNotEmpty, IsNumber,
   IsObject,
   IsOptional,
-  IsString,
+  IsString, Length, Matches, Min,
   ValidateNested,
 } from 'class-validator';
 import {
@@ -48,8 +49,6 @@ export enum PaymentMethodType {
   // дополни при необходимости
 }
 
-/* ===================== Common DTOs ===================== */
-
 export class AmountDto {
   @ApiProperty({
     description: 'Сумма платежа строкой с двумя знаками после запятой',
@@ -67,6 +66,244 @@ export class AmountDto {
   @IsEnum(Currency)
   currency!: Currency;
 }
+
+
+/* ===================== Receipt (FFD) ===================== */
+
+export enum TaxSystemCode {
+  OSN = 1,               // Общая
+  USN_INCOME = 2,        // УСН доход
+  USN_INCOME_OUTCOME = 3,// УСН доход-расход
+  ENVD = 4,              // ЕНВД (устаревшая, но в API ещё встречается)
+  ESN = 5,               // ЕСХН
+  PATENT = 6,            // Патент
+}
+
+export enum VatCode {
+  VAT_20 = 1,       // НДС 20%
+  VAT_10 = 2,       // НДС 10%
+  VAT_0 = 3,        // НДС 0%
+  WITHOUT_VAT = 4,  // Без НДС
+  VAT_20_120 = 5,   // НДС 20/120
+  VAT_10_110 = 6,   // НДС 10/110
+  // 7 не используем, чтобы не плодить путаницу
+}
+
+export enum PaymentSubject {
+  Commodity = 'commodity',           // Товар
+  Service = 'service',               // Услуга
+  Payment = 'payment',               // Платёж
+  Another = 'another',               // Иное
+}
+
+export enum PaymentMode {
+  FullPrepayment = 'full_prepayment',
+  Prepayment = 'prepayment',
+  Advance = 'advance',
+  FullPayment = 'full_payment',
+  PartialPayment = 'partial_payment',
+  Credit = 'credit',
+  CreditPayment = 'credit_payment',
+}
+
+export class SupplierInfoDto {
+  @ApiProperty({ description: 'Наименование поставщика', example: 'ООО Ромашка' })
+  @IsString()
+  @IsNotEmpty()
+  name!: string;
+
+  @ApiProperty({ description: 'ИНН поставщика', example: '7707083893' })
+  @IsString()
+  @Length(10, 12)
+  inn!: string;
+
+  @ApiProperty({
+    description: 'Телефоны поставщика',
+    example: ['+7 495 000-00-00'],
+    type: [String],
+  })
+  @IsArray()
+  @IsString({ each: true })
+  phones!: string[];
+}
+
+export class MarkQuantityDto {
+  @ApiProperty({ description: 'Числитель количества маркированного товара', example: 1 })
+  @IsInt()
+  @Min(1)
+  numerator!: number;
+
+  @ApiProperty({ description: 'Знаменатель количества маркированного товара', example: 1 })
+  @IsInt()
+  @Min(1)
+  denominator!: number;
+}
+
+export class ReceiptItemDto {
+  @ApiProperty({
+    description: 'Название позиции (1–128 символов)',
+    example: 'Подписка на месяц',
+  })
+  @IsString()
+  @Length(1, 128)
+  description!: string;
+
+  @ApiProperty({
+    description: 'Количество (до 6 знаков после запятой)',
+    example: 1,
+  })
+  @IsNumber({ maxDecimalPlaces: 6 })
+  @Min(0.000001)
+  quantity!: number;
+
+  @ApiProperty({
+    description: 'Сумма по позиции (amount.value — формат 0.00)',
+    type: () => AmountDto,
+    example: { value: '399.00', currency: Currency.RUB },
+  })
+  @ValidateNested()
+  @Type(() => AmountDto)
+  amount!: AmountDto;
+
+  @ApiProperty({
+    description: 'Код ставки НДС',
+    enum: VatCode,
+    example: VatCode.WITHOUT_VAT,
+  })
+  @IsEnum(VatCode)
+  vat_code!: VatCode;
+
+  @ApiProperty({
+    description: 'Предмет расчёта (FFD)',
+    enum: PaymentSubject,
+    example: PaymentSubject.Service,
+  })
+  @IsEnum(PaymentSubject)
+  payment_subject!: PaymentSubject;
+
+  @ApiProperty({
+    description: 'Признак способа расчёта (FFD)',
+    enum: PaymentMode,
+    example: PaymentMode.FullPayment,
+  })
+  @IsEnum(PaymentMode)
+  payment_mode!: PaymentMode;
+
+  @ApiPropertyOptional({
+    description: 'Код товара (маркировка/штрихкод/GTIN/код товара)',
+    example: '010460123456789021nB9mJt8bYh2',
+  })
+  @IsOptional()
+  @IsString()
+  product_code?: string;
+
+  @ApiPropertyOptional({
+    description: 'Страна происхождения (ISO 3166-1 alpha-2)',
+    example: 'RU',
+  })
+  @IsOptional()
+  @IsString()
+  country_of_origin_code?: string;
+
+  @ApiPropertyOptional({
+    description: 'Номер таможенной декларации',
+    example: '10714040/140917/1234567',
+  })
+  @IsOptional()
+  @IsString()
+  customs_declaration_number?: string;
+
+  @ApiPropertyOptional({
+    description: 'Акциз (0.00 — если нет)',
+    example: '0.00',
+  })
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d+(\.\d{2})$/)
+  excise?: string;
+
+  @ApiPropertyOptional({
+    description: 'Информация о поставщике (для агентских схем)',
+    type: () => SupplierInfoDto,
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SupplierInfoDto)
+  supplier?: SupplierInfoDto;
+
+  @ApiPropertyOptional({
+    description: 'Дробное количество маркированного товара',
+    type: () => MarkQuantityDto,
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => MarkQuantityDto)
+  mark_quantity?: MarkQuantityDto;
+}
+
+export class CustomerDto {
+  @ApiPropertyOptional({ description: 'E-mail покупателя', example: 'user@example.com' })
+  @IsOptional()
+  @IsString()
+  email?: string;
+
+  @ApiPropertyOptional({
+    description: 'Телефон покупателя (E.164 или с пробелами)',
+    example: '+7 900 000-00-00',
+  })
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @ApiPropertyOptional({ description: 'Полное имя покупателя', example: 'Иванов Иван Иванович' })
+  @IsOptional()
+  @IsString()
+  @Length(1, 256)
+  full_name?: string;
+
+  @ApiPropertyOptional({ description: 'ИНН покупателя (если требуется)', example: '7707083893' })
+  @IsOptional()
+  @IsString()
+  @Length(10, 12)
+  inn?: string;
+
+  @ApiPropertyOptional({ description: 'Адрес (если нужен для чека)', example: 'г. Москва, ул. Пушкина, д. 1' })
+  @IsOptional()
+  @IsString()
+  @Length(1, 256)
+  address?: string;
+}
+
+export class ReceiptDto {
+  @ApiPropertyOptional({
+    description: 'СНО (система налогообложения продавца)',
+    enum: TaxSystemCode,
+    example: TaxSystemCode.USN_INCOME,
+  })
+  @IsOptional()
+  @IsEnum(TaxSystemCode)
+  tax_system_code?: TaxSystemCode;
+
+  @ApiProperty({
+    description: 'Позиции чека',
+    type: () => [ReceiptItemDto],
+  })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ReceiptItemDto)
+  items!: ReceiptItemDto[];
+
+  @ApiPropertyOptional({
+    description: 'Данные покупателя',
+    type: () => CustomerDto,
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CustomerDto)
+  customer?: CustomerDto;
+}
+
+/* ===================== Common DTOs ===================== */
 
 export class ThreeDSecureDto {
   @ApiProperty({ description: '3-D Secure применён', example: true })
@@ -314,4 +551,13 @@ export class CreatePaymentDto {
   @IsOptional()
   @IsObject()
   metadata?: Record<string, unknown>;
+
+  @ApiPropertyOptional({
+    description: 'Данные для формирования фискального чека (FFD)',
+    type: () => ReceiptDto,
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ReceiptDto)
+  receipt?: ReceiptDto;
 }

@@ -1,8 +1,6 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { Message } from 'node-telegram-bot-api';
-import {
-  GREETING, MAKE_SCHEDULE_TITLE,
-} from './content';
+import { GREETING, MAKE_SCHEDULE_TITLE } from './content';
 import { TelegramOperator } from './operator/telegram';
 import * as process from 'process';
 import TaroService from './taro.service';
@@ -11,13 +9,11 @@ import { QuestionResponseDto, requestQuestion } from '../../utils';
 import { UserService } from '../user/user.service';
 import * as dayjs from 'dayjs';
 import { CartOfDayService } from '../cartOfDay/cartOfDay.service';
-import { YandexMetrika } from '../metrica/metrica.service';
 import { PaymentService } from '../payments/payment.service';
-import { Currency, YooNotificationDto } from '../payments/payment.dto';
+import { Currency, PaymentMode, PaymentSubject, VatCode, YooNotificationDto } from '../payments/payment.dto';
 import { PaymentEventBus } from '../../main';
 import { GA4Service } from '../firebase-analytics.service';
 import { createHash } from 'crypto';
-
 
 
 const firebaseConfig = {
@@ -335,8 +331,29 @@ export class BotService implements OnModuleInit {
       metadata: {
         userId: user.id,
         type: description,
+      },
+      receipt: {
+        customer: {
+          email: process.env.RECEIPT_EMAIL,
+        },
+        items: [
+          {
+            description: description,
+            quantity: 1.00,
+            amount: {
+              value: amount.toFixed(2),
+              currency: Currency.RUB
+            },
+            vat_code: VatCode.WITHOUT_VAT,
+            payment_subject: PaymentSubject.Service,
+            payment_mode: PaymentMode.FullPayment
+          }
+        ],
       }
     })
+
+    if (!data) return this.telegramOperator.bot.sendMessage(msg.chat.id, 'Произошла ошибка');
+
     const subscriptions = await this.userService.getUserSubscriptions(user.id);
 
     if (subscriptions.length > 0) {
@@ -423,22 +440,44 @@ export class BotService implements OnModuleInit {
   public async paymentPoints(msg: Message, amount: number, description: string, counter: number = 1) {
     const user = await this.getUser(msg);
     this.sendToAnalytics(msg, `payment-points-${amount}`, 'payment-points', 'Пользователь сделал запрос на оплату');
-    const data = await this.paymentService.createPayment({
-      amount: {
-        value: amount.toFixed(2),
-        currency: Currency.RUB
-      },
-      description,
-      confirmation: {
-        type: "redirect",
-        return_url: `https://t.me/${process.env.BOT_NAME}`
-      },
-      capture: true,
-      metadata: {
-        userId: user.id,
-        type: description,
-      }
-    })
+
+
+      const data = await this.paymentService.createPayment({
+        amount: {
+          value: amount.toFixed(2),
+          currency: Currency.RUB
+        },
+        description,
+        confirmation: {
+          type: "redirect",
+          return_url: `https://t.me/${process.env.BOT_NAME}`
+        },
+        capture: true,
+        metadata: {
+          userId: user.id,
+          type: description,
+        },
+        receipt: {
+          customer: {
+            email: process.env.RECEIPT_EMAIL,
+          },
+          items: [
+            {
+              description: description,
+              quantity: 1.00,
+              amount: {
+                value: amount.toFixed(2),
+                currency: Currency.RUB
+              },
+              vat_code: VatCode.WITHOUT_VAT,
+              payment_subject: PaymentSubject.Service,
+              payment_mode: PaymentMode.FullPayment
+            }
+          ],
+        }
+      })
+
+    if (!data) return this.telegramOperator.bot.sendMessage(msg.chat.id, 'Произошла ошибка');
 
     const paymentMsg = await this.telegramOperator.bot.sendMessage(msg.chat.id, '<b>Выберите способ оплаты</b>', {
       parse_mode: 'HTML',
@@ -521,7 +560,9 @@ export class BotService implements OnModuleInit {
           }
         })
         PaymentEventBus.off(`payment_${data.id}`,paymentHandler);
+
       }
+
     }
 
     PaymentEventBus.on(`payment_${data.id}`,paymentHandler)

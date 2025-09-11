@@ -23,11 +23,15 @@ export class PaymentService {
 
   async createPayment(dto: CreatePaymentDto) {
     const idempotenceKey = uuidv4();
-    const { data } = await this.agent.post('/payments', dto, {
-      headers: { 'Idempotence-Key': idempotenceKey },
-    });
+    try {
+      const { data } = await this.agent.post('/payments', dto, {
+        headers: { 'Idempotence-Key': idempotenceKey },
+      });
+      return data; // вернёт объект платежа с confirmation_url
+    } catch (e) {
+      console.log(e);
+    }
 
-    return data; // вернёт объект платежа с confirmation_url
   }
 
   async getPayment(paymentId: string) {

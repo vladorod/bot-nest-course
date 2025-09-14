@@ -25,6 +25,10 @@ export class UserService {
       }})
   }
 
+  async findAll() {
+    return this.prismaService.user.findMany()
+  }
+
   async createSubscription(userId: string) {
     const subscription = await this.prismaService.subscription.create({data: {
         startDate: dayjs().toDate(),

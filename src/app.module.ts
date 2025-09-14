@@ -8,6 +8,7 @@ import { UserService } from './service/user/user.service';
 import { CartOfDayService } from './service/cartOfDay/cartOfDay.service';
 import { PaymentController } from './service/payments/payment.controller';
 import { PaymentService } from './service/payments/payment.service';
+import { ScheduleModule } from '@nestjs/schedule';
 export const isDev =
   process.env.USERNAME === 'effec' || process.env.USERNAME === 'Gaming';
 
@@ -17,6 +18,7 @@ if (isDev) {
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true, // чтобы переменные окружения были доступны во всей программе
     }),

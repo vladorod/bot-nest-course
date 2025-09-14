@@ -1,5 +1,5 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { Message } from 'node-telegram-bot-api';
+import TelegramBot, { Message, SendMessageOptions } from 'node-telegram-bot-api';
 import { GREETING, MAKE_SCHEDULE_TITLE } from './content';
 import { TelegramOperator } from './operator/telegram';
 import * as process from 'process';
@@ -14,6 +14,8 @@ import { Currency, PaymentMode, PaymentSubject, VatCode, YooNotificationDto } fr
 import { PaymentEventBus } from '../../main';
 import { GA4Service } from '../firebase-analytics.service';
 import { createHash } from 'crypto';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { User } from '@prisma/client';
 
 
 const firebaseConfig = {
@@ -28,6 +30,18 @@ const firebaseConfig = {
 
 const ga4 = new GA4Service(firebaseConfig.measurementId, "9E-o5Z8bTTGq0KpFTBAwOQ");
 const HALF_HOUR_MS = 30 * 60 * 1000;
+
+const getUserFormMsg = (msg: Message): {
+  id: string,
+  last_name: string,
+  first_name: string,
+  username: string
+} => ({
+  id: msg.chat.id.toString(),
+  last_name: msg.chat.last_name,
+  first_name: msg.chat.first_name,
+  username: msg.chat.username
+})
 
 function getGaSession(userCreatedAt: number, now = Date.now()) {
   const today = new Date(now);
@@ -103,8 +117,10 @@ export class BotService implements OnModuleInit {
     this.telegramOperator.addCommand('payFew', (msg) =>  this.payFew(msg));
     this.telegramOperator.addCommand('paySubscription', (msg) =>  this.paySubscription(msg));
     this.telegramOperator.addCommand('profile', (msg) =>  this.getProfile(msg));
-
+ 
     this.telegramOperator.updateCallbackQueryCommands();
+
+
   }
 
   async startDialog(employMsg: Message) {
@@ -220,16 +236,22 @@ export class BotService implements OnModuleInit {
     }
   }
 
-  async getUser(msg: Message) {
-    const chat = await this.telegramOperator.bot.getChat(msg.chat.id);
-    let user = await this.userService.isUserExist(chat.id.toString());
+  async getUser(options: {
+    id: string,
+    first_name: string,
+    last_name: string,
+    username: string,
+  }) {
+    const chat = await this.telegramOperator.getChat(+options.id);
+    if (!chat) throw new Error(`Пользователь удалил чат ${options.id}`);
 
+    let user = await this.userService.isUserExist(options.id);
     if (!user) {
       user = await this.userService.create({
-        telegramId: chat.id.toString(),
-        firstName: chat.first_name,
-        lastName: chat.last_name,
-        username: chat.username
+        telegramId: options.id,
+        firstName: options.first_name,
+        lastName: options.last_name,
+        username: options.username
       })
     }
 
@@ -314,8 +336,24 @@ export class BotService implements OnModuleInit {
      await this.paymentPoints(msg, 99, '1 Расклад');
   }
 
+  async sendAll(callback: (chat: TelegramBot.Chat, user: User) => Promise<void>) {
+    const users = await this.userService.findAll();
+    let counter = 0;
+
+    for (const user of users) {
+      const chat = await this.telegramOperator.getChat(+user.telegramId);
+      if (!chat) continue;
+      await callback(chat, user);
+      counter++;
+    }
+
+    return counter;
+  }
+
+
+
   public async paymentSubscription(msg: Message, amount: number, description: string = `Подписка на телеграм бота @${process.env.BOT_NAME}`) {
-    const user = await this.getUser(msg);
+    const user = await this.getUser(getUserFormMsg(msg));
     this.sendToAnalytics(msg, 'paymentSubscription', 'paymentSubscription', 'Пользователь сделал запрос на оплату Подписки');
     const data = await this.paymentService.createPayment({
       amount: {
@@ -438,7 +476,7 @@ export class BotService implements OnModuleInit {
   }
 
   public async paymentPoints(msg: Message, amount: number, description: string, counter: number = 1) {
-    const user = await this.getUser(msg);
+    const user = await this.getUser(getUserFormMsg(msg));
     this.sendToAnalytics(msg, `payment-points-${amount}`, 'payment-points', 'Пользователь сделал запрос на оплату');
 
 
@@ -577,7 +615,7 @@ export class BotService implements OnModuleInit {
   }
 
   public async getProfile(msg: Message) {
-    const user = await this.getUser(msg);
+    const user = await this.getUser(getUserFormMsg(msg));
     this.sendToAnalytics(msg, "profile", 'profile', 'Пользователь зашел в профиль');
     const wallet = await this.userService.getUserBalance(user.telegramId);
     const subscriptions = await this.userService.getUserSubscriptions(user.id)
@@ -630,7 +668,7 @@ export class BotService implements OnModuleInit {
   }
   public async cardOfDay(msg: Message) {
     try {
-      const user = await this.getUser(msg);
+      const user = await this.getUser(getUserFormMsg(msg));
       const cardOfDay = await this.cartOfDayService.getCardOfDay(user.id);
       this.sendToAnalytics(msg, 'cardOfDay', 'cardOfDay', 'Пользователь запросил карту дня');
       if (cardOfDay) {
@@ -656,7 +694,7 @@ export class BotService implements OnModuleInit {
         const waitingText = await this.telegramOperator.bot.sendMessage(msg.chat.id, 'Подожди, сейчас подготовлю расшифровку..');
 
         try {
-          const response = await OpenAiService.getAnswer(requestQuestion([card], 'Карта дня что жедт меня сегодня', description));
+          const response = await OpenAiService.getAnswer(requestQuestion([card], 'Карта дня что ждет меня сегодня', description));
           await this.telegramOperator.bot.deleteMessage(waitingText.chat.id, waitingText.message_id);
 
 
@@ -698,7 +736,7 @@ export class BotService implements OnModuleInit {
 
   public sendToAnalytics(msg: Message, action: string, page: string, text: string) {
     (async () => {
-      const user = await this.getUser(msg);
+      const user = await this.getUser(getUserFormMsg(msg));
       try {
         const session = getGaSession(msg.chat.id);
         await ga4.sendEvent([
@@ -730,7 +768,7 @@ export class BotService implements OnModuleInit {
 
   public sendPayment(msg: Message, page: string, transaction_id: string, price: number, category: string, name: string, reason?: "purchase"  | "purchase_failed" | "purchase_refund" | "begin_checkout") {
     (async () => {
-      const user = await this.getUser(msg);
+      const user = await this.getUser(getUserFormMsg(msg));
       const session = getGaSession(msg.chat.id);
       try {
         console.log('payment', transaction_id, price, category, name)
@@ -777,7 +815,7 @@ export class BotService implements OnModuleInit {
   }
 
   public async getAnswer(msg: Message, theme: string) {
-    const user = await this.getUser(msg);
+    const user = await this.getUser(getUserFormMsg(msg));
     const wallet = await this.userService.getUserBalance(user.telegramId);
     const subscriptions = await this.userService.getUserSubscriptions(user.id);
 
@@ -833,6 +871,57 @@ export class BotService implements OnModuleInit {
     }
   }
 
+
+  @Cron(CronExpression.EVERY_DAY_AT_9AM, { timeZone: 'Europe/Moscow' })
+  public sendCardOfDay() {
+
+    try {
+        this.sendAll(async (chat, user) => {
+           await this.telegramOperator.bot.sendPhoto(chat.id, 'https://s3.admin.bazzza.ru/api/v1/buckets/open/objects/download?preview=true&prefix=Frame%2072%20(4).png&version_id=672d531a-c0ec-4fef-9b12-759a5c6208e7', {
+             caption: '✨ Сегодня карта дня ждёт только тебя. Завтра будет уже другая история.',
+             parse_mode: 'HTML',
+             reply_markup: {
+               inline_keyboard: [
+                 [
+                   { text: 'Вытащить карту дня 🃏', callback_data: 'cart_of_day' },
+                 ]
+               ]
+             }
+           })
+        })
+
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+
+  @Cron('0 0 19 */5 * *', { timeZone: 'Europe/Moscow' })
+  public sendEveryWeek() {
+    try {
+      this.sendAll(async (chat, user) => {
+
+        await this.telegramOperator.bot.sendVideo(
+          chat.id,
+          'https://s3.admin.bazzza.ru/api/v1/buckets/open/objects/download?preview=true&prefix=Композиция%201_7.mp4&version_id=44afffd5-92f8-41fd-8c67-84c29c47f1cc',
+          {
+            caption: "🔮 Карты могут ответить на любую тему — любовь, деньги или будущее.\nСделай расклад и узнай, что они скажут тебе.",
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: 'Сделать расклад ✨', callback_data: 'make_schedule' },
+                ]
+              ]
+            }
+          }
+        )
+      })
+    } catch (e) {
+      console.error(e);
+    }
+
+  }
 
   onModuleInit(): any {
     this.initialization();

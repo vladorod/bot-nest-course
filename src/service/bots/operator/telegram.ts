@@ -49,6 +49,13 @@ export class TelegramOperator implements OnModuleInit {
   }
 
 
+  async getChat(chatId: number) {
+    try {
+      return await this.bot.getChat(chatId);
+    } catch (e) {
+      return null;
+    }
+  }
   addCommand(name: string, callback: (msg: Message) => Promise<void>) {
     this.callbackQueryCommands[name] = callback;
   }

@@ -117,7 +117,7 @@ export class BotService implements OnModuleInit {
     this.telegramOperator.addCommand('payFew', (msg) =>  this.payFew(msg));
     this.telegramOperator.addCommand('paySubscription', (msg) =>  this.paySubscription(msg));
     this.telegramOperator.addCommand('profile', (msg) =>  this.getProfile(msg));
- 
+
     this.telegramOperator.updateCallbackQueryCommands();
 
 
@@ -354,6 +354,14 @@ export class BotService implements OnModuleInit {
 
   public async paymentSubscription(msg: Message, amount: number, description: string = `Подписка на телеграм бота @${process.env.BOT_NAME}`) {
     const user = await this.getUser(getUserFormMsg(msg));
+    const wallet = await this.userService.getUserBalance(user.telegramId);
+    const subscription = await this.userService.getUserSubscriptions(user.id);
+
+    if (wallet.balance > 0 || subscription.length > 0) {
+      await this.getProfile(msg);
+      return
+    }
+
     this.sendToAnalytics(msg, 'paymentSubscription', 'paymentSubscription', 'Пользователь сделал запрос на оплату Подписки');
     const data = await this.paymentService.createPayment({
       amount: {
@@ -477,9 +485,15 @@ export class BotService implements OnModuleInit {
 
   public async paymentPoints(msg: Message, amount: number, description: string, counter: number = 1) {
     const user = await this.getUser(getUserFormMsg(msg));
+    const wallet = await this.userService.getUserBalance(user.telegramId);
+    const subscription = await this.userService.getUserSubscriptions(user.id);
+
+    if (wallet.balance > 0 || subscription.length > 0) {
+        await this.getProfile(msg);
+        return
+    }
+
     this.sendToAnalytics(msg, `payment-points-${amount}`, 'payment-points', 'Пользователь сделал запрос на оплату');
-
-
       const data = await this.paymentService.createPayment({
         amount: {
           value: amount.toFixed(2),
@@ -727,8 +741,65 @@ export class BotService implements OnModuleInit {
     this.sendToAnalytics(msg, 'askQuestion', 'askQuestion', 'Пользователь задал свой вопрос');
     try {
       const question = await this.telegramOperator.requestQuestion(msg,
-        '🌙  Сформулируй свой вопрос подробно… ведь судьба шепчет лишь тем, кто умеет слушать её внимательно.');
-      await this.getAnswer(msg, question.text);
+        '🌙  Сформулируй свой вопрос подробно… ведь судьба шепчет лишь тем, кто умеет слушать её внимательно.\n\nМожешь написать, а можешь отправть голосовое, но не дольше 1 мин.');
+      let text = question.text;
+
+      if (question.voice && question.voice.duration >= 60) {
+        await this.telegramOperator.bot.sendMessage(msg.chat.id, 'Произошла ошибка, ваша запись должна быть не больше 1 минуты', {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: 'Главное меню', callback_data: 'menu' },
+              ]
+            ]
+          }
+        });
+        return
+      }
+
+      if (question.voice) {
+        const user = await this.getUser(getUserFormMsg(msg));
+        const wallet = await this.userService.getUserBalance(user.telegramId);
+        const subscriptions = await this.userService.getUserSubscriptions(user.id);
+
+        if (wallet.balance + subscriptions.length === 0) {
+          return await this.requestPaymentType(msg);
+        }
+
+        const fileUrl = await this.telegramOperator.bot.getFileLink(question.voice.file_id);
+        const transcriptionResponse = await OpenAiService.transcription(fileUrl);
+        text = transcriptionResponse.text;
+      }
+
+      if (question.video_note && question.video_note.duration >= 60) {
+        await this.telegramOperator.bot.sendMessage(msg.chat.id, 'Произошла ошибка, ваша запись должна быть не больше 1 минуты', {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: 'Главное меню', callback_data: 'menu' },
+              ]
+            ]
+          }
+        });
+        return
+      }
+
+      if (question.video_note) {
+        const user = await this.getUser(getUserFormMsg(msg));
+        const wallet = await this.userService.getUserBalance(user.telegramId);
+        const subscriptions = await this.userService.getUserSubscriptions(user.id);
+
+        if (wallet.balance + subscriptions.length === 0) {
+          return await this.requestPaymentType(msg);
+        }
+
+        const fileUrl = await this.telegramOperator.bot.getFileLink(question.video_note.file_id);
+        const transcriptionResponse = await OpenAiService.transcription(fileUrl);
+        text = transcriptionResponse.text;
+      }
+
+
+      await this.getAnswer(msg, text);
     } catch (e) {
       console.error(e)
     }
@@ -807,7 +878,7 @@ export class BotService implements OnModuleInit {
           // включи debug на тесте, чтобы увидеть валидацию
           debug: false
         });
-        console.log('payment end', transaction_id, price, category, name)
+
       } catch (e){
         console.log(e)
       }

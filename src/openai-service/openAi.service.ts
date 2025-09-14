@@ -1,5 +1,4 @@
-import OpenAI from 'openai';
-
+import OpenAI, { toFile } from 'openai';
 
 
 class OpenAiService {
@@ -18,6 +17,21 @@ class OpenAiService {
     });
 
     return response.output_text.toString()
+  }
+
+  async transcription(fileUrl: string){
+    const res = await fetch(fileUrl);
+    const buffer = Buffer.from(await res.arrayBuffer());
+    const upload = await toFile(buffer, "voice.ogg", { type: "audio/ogg" });
+
+    const client = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY, // This is the default and can be omitted
+    });
+
+    return await client.audio.transcriptions.create({
+      file: upload,
+      model: "whisper-1",
+    })
   }
 }
 export default new OpenAiService();

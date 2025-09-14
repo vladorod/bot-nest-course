@@ -112,9 +112,9 @@ export class TelegramOperator implements OnModuleInit {
 
 
 
-      const handler = (userMsg: Message) => {70
+      const handler = (userMsg: Message) => {
         if (userMsg.from.id === msg.chat.id) {
-          if (userMsg.text.match(/^\/\w+/)) {
+          if (userMsg.text?.match(/^\/\w+/)) {
             rej(userMsg);
             this.bot.removeListener('message', handler);
           } else {
@@ -128,7 +128,7 @@ export class TelegramOperator implements OnModuleInit {
 
       const buttonHandler = (callbackQuery: CallbackQuery) => {
 
-        if (callbackQuery.message.chat.id === msg.from.id && buttons.length > 0) {
+        if (callbackQuery.message.chat.id === msg.from.id && buttons?.length > 0) {
           const isCommand = Object.keys(
             this.callbackQueryCommands.callbackQueryCommands,
           ).find((command) => callbackQuery.data === command);
@@ -145,6 +145,8 @@ export class TelegramOperator implements OnModuleInit {
       };
 
 
+
+
       await this.bot.sendMessage(msg.chat.id, text, {
         ...options,
         reply_markup: { remove_keyboard: true, ...options?.reply_markup },
@@ -152,6 +154,7 @@ export class TelegramOperator implements OnModuleInit {
 
       this.bot.on('callback_query', buttonHandler);
       this.bot.on('message', handler);
+
     });
   }
 

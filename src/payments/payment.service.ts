@@ -1,6 +1,6 @@
 
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { PrismaService } from '../../../prisma/prisma.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import axios, { Axios } from 'axios';
 import * as process from 'process';
 import { CreatePaymentDto } from './payment.dto';

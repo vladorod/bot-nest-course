@@ -1,3 +1,5 @@
+import * as process from 'node:process';
+
 export type GA4Event = {
   name: string;
   params?: Record<string, unknown>;
@@ -70,6 +72,8 @@ export class GA4Service {
     events: GA4Event[],
     options: SendEventOptions = {}
   ): Promise<{ ok: boolean; status: number; validation?: unknown }> {
+    if (process.env.NODE_ENV !== 'production') return
+
     if (!Array.isArray(events) || events.length === 0) {
       throw new Error('GA4Service.sendEvent: пустой массив events.');
     }

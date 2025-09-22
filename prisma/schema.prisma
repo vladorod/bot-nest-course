@@ -1,14 +1,16 @@
-// ---------- base ----------
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
   provider = "prisma-client-js"
 }
 
-// ---------- users ----------
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Пользователь телеграм бота
 model User {
   id         String   @id @default(cuid())
   telegramId String   @unique
@@ -18,15 +20,87 @@ model User {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  // кошелек и история
-  wallet     Wallet?
-  creditTxns CreditTransaction[]
+  // Связи
+  subscription Subscription[]
+  userProgress UserProgress[]
+  userAnswers  UserAnswer[]
 
-  // коммерция
-  orders        Order[]
-  subscriptions Subscription[]
-  readings      Reading[]
-  cartOfDay     CartOfDay[]
+  @@map("users")
+}
+
+// Программы обучения
+model Program {
+  id          String      @id @default(uuid())
+  name        String      @unique // "Мок-собеседование", "Изучение по темам"
+  description String? // Описание программы
+  type        ProgramType // Тип программы
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  // Связи
+  categories Category[]
+
+  @@map("programs")
+}
+
+// Категории (HTTP/HTTPS, браузер, HTML, CSS, React и т.д.)
+model Category {
+  id          String   @id @default(uuid())
+  name        String   @unique // "React", "HTML", "CSS", "HTTP/HTTPS", "Браузер"
+  description String? // Описание категории
+  icon        String? // Эмодзи для категории
+  isActive    Boolean  @default(true)
+  order       Int // Порядок отображения
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Связи
+  programId String
+  program   Program @relation(fields: [programId], references: [id])
+
+  subcategories Subcategory[]
+  questions     Question[]
+  userProgress  UserProgress[]
+
+  @@map("categories")
+}
+
+// Подтемы (хуки, состояния, рендеринг и т.д.)
+model Subcategory {
+  id          String   @id @default(uuid())
+  name        String // "Хуки", "Состояние", "Рендеринг", "Компоненты"
+  description String? // Описание подтемы
+  isActive    Boolean  @default(true)
+  order       Int // Порядок отображения
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Связи
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id])
+
+  questions    Question[]
+  userProgress UserProgress[]
+
+  @@unique([categoryId, name])
+  @@map("subcategories")
+}
+
+// ---------- подписки ----------
+model Subscription {
+  id        String   @id @default(cuid())
+  userId    String
+  planId    String
+  startDate DateTime @default(now())
+  endDate   DateTime
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+  plan Plan @relation(fields: [planId], references: [id])
+
+  @@index([userId, isActive])
 }
 
 // ---------- планы ----------
@@ -42,123 +116,106 @@ model Plan {
   periodQuota   Int? // квота баллов на период подписки; null = безлимит
   createdAt     DateTime @default(now())
 
-  orders        Order[]
   subscriptions Subscription[]
 }
 
 enum PlanType {
-  SINGLE // 1 расклад => списать 1 балл
-  PACKAGE // пакет баллов => начислить N
-  SUBSCRIPTION // подписка на период (безлимит или с квотой)
+  SUBSCRIPTION
+}
+// Вопросы по темам
+model Question {
+  id             String          @id @default(uuid())
+  question       String // Текст вопроса
+  options        String // JSON с вариантами ответов
+  correctAnswer  Int // Индекс правильного ответа (0, 1, 2, 3)
+  explanation    String? // Объяснение правильного ответа
+  difficulty     Difficulty      @default(MEDIUM) // Сложность вопроса
+  interviewLevel InterviewLevel? // Уровень для мок-собеседования
+  isActive       Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  // Связи
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id])
+
+  subcategoryId String?
+  subcategory   Subcategory? @relation(fields: [subcategoryId], references: [id])
+
+  userAnswers UserAnswer[]
+
+  @@map("questions")
 }
 
-// ---------- платежи ----------
-model Order {
-  id         String      @id @default(cuid())
-  userId     String
-  planId     String
-  amountRub  Int
-  status     OrderStatus @default(PENDING)
-  provider   Provider    @default(YOOMONEY)
-  paymentId  String? // id транзакции в провайдере
-  paymentUrl String? // ссылка на оплату
-  meta       Json?
-  createdAt  DateTime    @default(now())
-  updatedAt  DateTime    @updatedAt
+// Прогресс пользователя по категориям
+model UserProgress {
+  id             String    @id @default(uuid())
+  score          Int       @default(0) // Количество правильных ответов
+  totalQuestions Int       @default(0) // Общее количество вопросов
+  accuracy       Float     @default(0) // Точность (score / totalQuestions)
+  level          UserLevel @default(BEGINNER) // Уровень пользователя
+  startedAt      DateTime  @default(now())
+  lastStudied    DateTime  @default(now())
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  user User @relation(fields: [userId], references: [id])
-  plan Plan @relation(fields: [planId], references: [id])
-
-  creditTxns CreditTransaction[]
-}
-
-enum OrderStatus {
-  PENDING
-  PAID
-  CANCELED
-  EXPIRED
-}
-
-enum Provider {
-  YOOMONEY
-  TINKOFF
-  TELEGRAM_STARS
-}
-
-model CartOfDay {
-  id        String   @id @default(cuid())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  text      String
-
-  user   User   @relation(fields: [userId], references: [id])
+  // Связи
   userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id])
+
+  subcategoryId String?
+  subcategory   Subcategory? @relation(fields: [subcategoryId], references: [id])
+
+  @@unique([userId, categoryId, subcategoryId])
+  @@map("user_progress")
 }
 
-// ---------- подписки ----------
-model Subscription {
-  id        String   @id @default(cuid())
-  userId    String
-  planId    String
-  startDate DateTime @default(now())
-  endDate   DateTime
-  isActive  Boolean  @default(true)
-  autoRenew Boolean  @default(false)
-  provider  Provider @default(YOOMONEY)
-  createdAt DateTime @default(now())
+// Ответы пользователей на вопросы
+model UserAnswer {
+  id             String   @id @default(uuid())
+  selectedAnswer Int // Выбранный вариант ответа
+  isCorrect      Boolean // Правильный ли ответ
+  timeSpent      Int? // Время на ответ в секундах
+  createdAt      DateTime @default(now())
 
-  // если есть periodQuota в плане, удобно хранить прогресс
-  periodUsed Int @default(0)
+  // Связи
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
-  user User @relation(fields: [userId], references: [id])
-  plan Plan @relation(fields: [planId], references: [id])
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id])
 
-  @@index([userId, isActive])
+  @@map("user_answers")
 }
 
-// ---------- кошелек и транзакции баллов ----------
-model Wallet {
-  id        String   @id @default(cuid())
-  userId    String   @unique
-  balance   Int      @default(0) // текущее количество баллов
-  updatedAt DateTime @updatedAt
-
-  user User @relation(fields: [userId], references: [id])
+// Типы программ обучения
+enum ProgramType {
+  MOCK_INTERVIEW // Мок-собеседование
+  TOPIC_STUDY // Изучение по темам
 }
 
-model CreditTransaction {
-  id        String        @id @default(cuid())
-  userId    String
-  orderId   String? // пополнение после оплаты
-  readingId String? // списание за расклад
-  type      CreditTxnType
-  amount    Int // +N или -N
-  reason    String?
-  createdAt DateTime      @default(now())
-
-  user    User     @relation(fields: [userId], references: [id])
-  order   Order?   @relation(fields: [orderId], references: [id])
-  reading Reading? @relation(fields: [readingId], references: [id])
-
-  @@index([userId, createdAt])
+// Уровни сложности вопросов
+enum Difficulty {
+  EASY // Лёгкий
+  MEDIUM // Средний
+  HARD // Сложный
+  EXPERT // Экспертный
 }
 
-enum CreditTxnType {
-  TOPUP // начисление баллов (пакет, промо)
-  CONSUME // списание баллов (расклад)
-  ADJUST // ручная коррекция
-  EXPIRE // сгорание
+// Уровни собеседования
+enum InterviewLevel {
+  JUNIOR // Junior
+  MIDDLE // Middle
+  SENIOR // Senior
 }
 
-// ---------- учёт раскладов ----------
-model Reading {
-  id         String   @id @default(cuid())
-  userId     String
-  topic      String?
-  requestMsg String?
-  resultMsg  String?
-  createdAt  DateTime @default(now())
-
-  user              User                @relation(fields: [userId], references: [id])
-  CreditTransaction CreditTransaction[]
+// Уровни пользователя
+enum UserLevel {
+  BEGINNER // Начинающий
+  INTERMEDIATE // Средний
+  ADVANCED // Продвинутый
+  EXPERT // Экспертный
 }

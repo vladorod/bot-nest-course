@@ -1,6 +1,6 @@
 
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { PrismaService } from '../../../prisma/prisma.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import { PlanType, Prisma } from '@prisma/client';
 import { CreateUserDto } from './dto/create.user.dto';
 import { Currency } from '../payments/payment.dto';
@@ -17,11 +17,6 @@ export class UserService {
   async create(user: CreateUserDto) {
     return this.prismaService.user.create({data: {
       ...user,
-        wallet: {
-          create: {
-            balance: 3,
-          }
-        }
       }})
   }
 
@@ -30,7 +25,7 @@ export class UserService {
   }
 
   async createSubscription(userId: string) {
-    const subscription = await this.prismaService.subscription.create({data: {
+    return this.prismaService.subscription.create({data: {
         startDate: dayjs().toDate(),
         endDate: dayjs().add(1, 'month').toDate(),
         isActive: true,
@@ -69,23 +64,8 @@ export class UserService {
         isActive: true
       }
     })
-    console.log(data)
     return data
   }
-  async updateBalance(userId: string, balance: number) {
-    return this.prismaService.wallet.update({
-      where: {
-        userId: userId
-      },
-      data: {
-        balance
-      }
-    })
-  }
 
-  async getUserBalance(telegramId: string) {
-    const user = await this.prismaService.user.findUnique({where: {telegramId}, include: {wallet: true}})
-    return user.wallet;
-  }
 
 }

@@ -1,91 +1,32 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import TelegramBot, { Message, SendMessageOptions } from 'node-telegram-bot-api';
-import { GREETING, MAKE_SCHEDULE_TITLE } from './content';
+import TelegramBot, { Message } from 'node-telegram-bot-api';
+import { GREETING, LEARN_THEMES_TEXT, MAKE_SCHEDULE_TITLE, PASS_AN_INTERVIEW_TEXT } from './content';
 import { TelegramOperator } from './operator/telegram';
 import * as process from 'process';
-import TaroService from './taro.service';
-import OpenAiService from '../../openai-service/openAi.service';
-import { QuestionResponseDto, requestQuestion } from '../../utils';
+import OpenAiService from '../openai/openAi.service';
 import { UserService } from '../user/user.service';
 import * as dayjs from 'dayjs';
-import { CartOfDayService } from '../cartOfDay/cartOfDay.service';
 import { PaymentService } from '../payments/payment.service';
 import { Currency, PaymentMode, PaymentSubject, VatCode, YooNotificationDto } from '../payments/payment.dto';
-import { PaymentEventBus } from '../../main';
+import { PaymentEventBus } from '../main';
 import { GA4Service } from '../firebase-analytics.service';
-import { createHash } from 'crypto';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { User } from '@prisma/client';
+import { getGaSession, getPage, getUserFormMsg } from '../utils';
 
+const ga4 = new GA4Service(process.env.GOOGLE_MEASUREMENT_ID, process.env.GA4_API_KEY);
 
-const firebaseConfig = {
-  apiKey: "AIzaSyC2qx2TKBRBeFQROFoGX1bWSq3T_OohkIM",
-  authDomain: "taro-bbc0f.firebaseapp.com",
-  projectId: "taro-bbc0f",
-  storageBucket: "taro-bbc0f.firebasestorage.app",
-  messagingSenderId: "103200457959",
-  appId: "1:103200457959:web:aad2f71a8c9856e9f88e42",
-  measurementId: "G-KTYYN02N88"
-};
-
-const ga4 = new GA4Service(firebaseConfig.measurementId, "9E-o5Z8bTTGq0KpFTBAwOQ");
-const HALF_HOUR_MS = 30 * 60 * 1000;
-
-const getUserFormMsg = (msg: Message): {
-  id: string,
-  last_name: string,
-  first_name: string,
-  username: string
-} => ({
-  id: msg.chat.id.toString(),
-  last_name: msg.chat.last_name,
-  first_name: msg.chat.first_name,
-  username: msg.chat.username
-})
-
-function getGaSession(userCreatedAt: number, now = Date.now()) {
-  const today = new Date(now);
-  today.setHours(0, 0, 0, 0);
-  const msSinceDayStart = now - today.getTime();
-
-  const bucketIndex = Math.floor(msSinceDayStart / HALF_HOUR_MS);
-  const ga_session_id = today.getTime() + bucketIndex * HALF_HOUR_MS;
-  const ga_session_number = 1 + bucketIndex; // сбрасывается каждый день
-
-  return { ga_session_id, ga_session_number };
-}
 
 const dialogs = new Set();
 
-const createSessionId = (telegramId: number) => {
-  const date = dayjs().format('YYYY-MM-DD:hh')
-  const data = `${telegramId}-${date}`;
-  const hash = createHash("md5").update(data).digest("hex");
-  return parseInt(hash.slice(0, 12), 16);
-};
 
-const getPage = (title: string, msg: Message, userId: string) => {
-  const session = getGaSession(msg.chat.id);
-  return ({
-    name: 'page_view',
-    params: {
-      page_location: `https://taro.vladbika.ru/${title}`,
-      page_title: title,
-      page_referrer: 'https://taro.vladbika.ru/',
-      ga_session_id: session.ga_session_id,
-      ga_session_number: session.ga_session_number,
-      session_engaged: 1,
-      engagement_time_msec: 1
-    }
-  })
-}
 @Injectable()
 export class BotService implements OnModuleInit {
   public appointmentThreadId : string;
   public appointmentChatId : string;
   public botName : string;
 
-  constructor(private readonly telegramOperator: TelegramOperator, private readonly userService: UserService, private readonly cartOfDayService: CartOfDayService, private readonly paymentService: PaymentService)  {}
+  constructor(private readonly telegramOperator: TelegramOperator, private readonly userService: UserService, private readonly paymentService: PaymentService)  {}
 
   initialization() {
     this.appointmentThreadId = process.env.TELEGRAM_APPOINTMENTS_THREAD_ID;
@@ -105,6 +46,8 @@ export class BotService implements OnModuleInit {
     });
 
     this.telegramOperator.addCommand('make_schedule', (msg) => this.makeSchedule(msg));
+    this.telegramOperator.addCommand('pass_an_interview', (msg) => this.passAnInterview(msg));
+    this.telegramOperator.addCommand('learn_teams', (msg) => this.learnTeams(msg));
     this.telegramOperator.addCommand('menu', (msg) => this.mainMenu(msg));
     this.telegramOperator.addCommand('relationship_magic', (msg) => this.relationshipMagic(msg));
     this.telegramOperator.addCommand('health_magic', (msg) => this.healthMagic(msg));
@@ -112,7 +55,6 @@ export class BotService implements OnModuleInit {
     this.telegramOperator.addCommand('common_magic', (msg) => this.commonMagic(msg));
     this.telegramOperator.addCommand('work_magic', (msg) => this.workMagic(msg));
     this.telegramOperator.addCommand('ask_question', (msg) => this.askQuestion(msg));
-    this.telegramOperator.addCommand('cart_of_day', (msg) =>  this.cardOfDay(msg));
     this.telegramOperator.addCommand('payOne', (msg) =>  this.payOne(msg));
     this.telegramOperator.addCommand('payFew', (msg) =>  this.payFew(msg));
     this.telegramOperator.addCommand('paySubscription', (msg) =>  this.paySubscription(msg));
@@ -168,11 +110,9 @@ export class BotService implements OnModuleInit {
       }
 
       const dialogHandler = (_msg: Message) => {
-
         if (_msg.text.match('startDialog') && _msg.chat.id === employMsg.chat.id) {
           return
         }
-
         if (_msg.text.match('leaveDialog') && _msg.chat.id === employMsg.chat.id) {
           leaveChat()
           return
@@ -214,18 +154,15 @@ export class BotService implements OnModuleInit {
 
       this.sendToAnalytics(msg, 'main_menu', 'main_menu', 'Пользователь в главном меню');
 
-      await this.telegramOperator.requestQuestion(msg, GREETING, {
+      await this.telegramOperator.requestQuestion(msg, GREETING(msg.from.username), {
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '🔮 Сделать расклад', callback_data: 'make_schedule' },
+              { text: 'Пройти собеседование', callback_data: 'pass_an_interview' },
             ],
             [
-              { text: '🧙🏻‍♀️ Задать вопрос', callback_data: 'ask_question' },
-            ],
-            [
-              { text: '🃏 Карта дня', callback_data: 'cart_of_day' },
+              { text: 'Изучение по темам', callback_data: 'learn_teams' },
             ]
           ]
         }
@@ -234,6 +171,13 @@ export class BotService implements OnModuleInit {
     } catch (e) {
       console.error(e)
     }
+  }
+
+  public async passAnInterview(msg: TelegramBot.Message) {
+    await this.telegramOperator.bot.sendMessage(msg.chat.id,PASS_AN_INTERVIEW_TEXT)
+  }
+  public async learnTeams(msg: TelegramBot.Message) {
+    await this.telegramOperator.bot.sendMessage(msg.chat.id,LEARN_THEMES_TEXT, {parse_mode: "HTML"});
   }
 
   async getUser(options: {
@@ -333,7 +277,7 @@ export class BotService implements OnModuleInit {
   }
 
   public async payOne(msg: Message) {
-     await this.paymentPoints(msg, 99, '1 Расклад');
+     // await this.paymentPoints(msg, 99, '1 Расклад');
   }
 
   async sendAll(callback: (chat: TelegramBot.Chat, user: User) => Promise<void>) {
@@ -354,10 +298,9 @@ export class BotService implements OnModuleInit {
 
   public async paymentSubscription(msg: Message, amount: number, description: string = `Подписка на телеграм бота @${process.env.BOT_NAME}`) {
     const user = await this.getUser(getUserFormMsg(msg));
-    const wallet = await this.userService.getUserBalance(user.telegramId);
     const subscription = await this.userService.getUserSubscriptions(user.id);
 
-    if (wallet.balance > 0 || subscription.length > 0) {
+    if (subscription.length > 0) {
       await this.getProfile(msg);
       return
     }
@@ -483,145 +426,8 @@ export class BotService implements OnModuleInit {
     PaymentEventBus.on(`payment_${data.id}`,paymentHandler)
   }
 
-  public async paymentPoints(msg: Message, amount: number, description: string, counter: number = 1) {
-    const user = await this.getUser(getUserFormMsg(msg));
-    const wallet = await this.userService.getUserBalance(user.telegramId);
-    const subscription = await this.userService.getUserSubscriptions(user.id);
-
-    if (wallet.balance > 0 || subscription.length > 0) {
-        await this.getProfile(msg);
-        return
-    }
-
-    this.sendToAnalytics(msg, `payment-points-${amount}`, 'payment-points', 'Пользователь сделал запрос на оплату');
-      const data = await this.paymentService.createPayment({
-        amount: {
-          value: amount.toFixed(2),
-          currency: Currency.RUB
-        },
-        description,
-        confirmation: {
-          type: "redirect",
-          return_url: `https://t.me/${process.env.BOT_NAME}`
-        },
-        capture: true,
-        metadata: {
-          userId: user.id,
-          type: description,
-        },
-        receipt: {
-          customer: {
-            email: process.env.RECEIPT_EMAIL,
-          },
-          items: [
-            {
-              description: description,
-              quantity: 1.00,
-              amount: {
-                value: amount.toFixed(2),
-                currency: Currency.RUB
-              },
-              vat_code: VatCode.WITHOUT_VAT,
-              payment_subject: PaymentSubject.Service,
-              payment_mode: PaymentMode.FullPayment
-            }
-          ],
-        }
-      })
-
-    if (!data) return this.telegramOperator.bot.sendMessage(msg.chat.id, 'Произошла ошибка');
-
-    const paymentMsg = await this.telegramOperator.bot.sendMessage(msg.chat.id, '<b>Выберите способ оплаты</b>', {
-      parse_mode: 'HTML',
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: 'Юкасса', url: data.confirmation.confirmation_url, pay: true },
-          ]
-        ]
-      }
-    })
-
-    const MIN_10 = 600000;
-
-    setTimeout(async () => {
-      this.telegramOperator.bot.deleteMessage(msg.chat.id, paymentMsg.message_id);
-      this.sendToAnalytics(msg, `payment-points-${amount}`, 'payment-points', 'Пользователь отменил оплату (timeout)');
-      this.sendPayment(
-        msg,
-        'paymentSubscription',
-        data.id,
-        0,
-        'subscription',
-        'Подписка',
-        'purchase_failed'
-      );
-      PaymentEventBus.off(`payment_${data.id}`,paymentHandler);
-    }, MIN_10);
-    const paymentHandler = async (_data: YooNotificationDto) => {
-      if (_data.event === 'payment.succeeded') {
-        const wallet = await this.userService.getUserBalance(user.telegramId);
-        await this.telegramOperator.bot.deleteMessage(msg.chat.id, paymentMsg.message_id);
-        await this.userService.updateBalance(user.id, wallet.balance + counter);
-        await this.telegramOperator.bot.sendMessage(msg.chat.id, 'Оплата прошла успешно', {
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [
-              [
-                { text: 'Главное меню', callback_data: 'menu' }
-              ],
-              [
-                { text: '👤 Профиль', callback_data: 'profile' },
-              ]
-            ]
-          }
-        })
-        this.sendPayment(
-          msg,
-          'payment-points',
-          _data.object.id,
-          +_data.object.amount.value,
-          'points',
-          `${amount} Раксладов`,
-          'purchase'
-        );
-        this.sendPayment(msg, 'payment-points', _data.object.id, +_data.object.amount.value, 'points', 'Покупка раклада');
-        PaymentEventBus.off(`payment_${data.id}`,paymentHandler);
-      } else if (_data.event === 'payment.canceled') {
-        await this.telegramOperator.bot.deleteMessage(msg.chat.id, paymentMsg.message_id);
-        this.sendPayment(
-          msg,
-          'payment-points',
-          _data.object.id,
-          0,
-          'points',
-          `${amount} Раксладов`,
-          'purchase_failed'
-        );
-        await this.telegramOperator.bot.sendMessage(msg.chat.id, 'Оплата отменена', {
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [
-              [
-                { text: 'Главное меню', callback_data: 'menu' }
-              ],
-              [
-                { text: '👤 Профиль', callback_data: 'profile' },
-              ]
-            ]
-          }
-        })
-        PaymentEventBus.off(`payment_${data.id}`,paymentHandler);
-
-      }
-
-    }
-
-    PaymentEventBus.on(`payment_${data.id}`,paymentHandler)
-  }
 
   public async payFew(msg: Message) {
-    await this.paymentPoints(msg, 299, '5 Раскладов', 5);
   }
 
   public async paySubscription(msg: Message) {
@@ -631,10 +437,9 @@ export class BotService implements OnModuleInit {
   public async getProfile(msg: Message) {
     const user = await this.getUser(getUserFormMsg(msg));
     this.sendToAnalytics(msg, "profile", 'profile', 'Пользователь зашел в профиль');
-    const wallet = await this.userService.getUserBalance(user.telegramId);
     const subscriptions = await this.userService.getUserSubscriptions(user.id)
     const subscription = subscriptions[0];
-    const text = (subscription && subscription.isActive) ? `<b>У вас оформлена подписка до ${dayjs(subscription.endDate).format('DD.MM.YYYY')}</b>` : `<b>У вас осталось ${wallet.balance} попыток\nМожете выбрать один из тарифов</b>`;
+    const text = (subscription && subscription.isActive) ? `<b>У вас оформлена подписка до ${dayjs(subscription.endDate).format('DD.MM.YYYY')}</b>` : `<b>Выбрать один из тарифов</b>`;
     let inline_keyboard = [];
 
     if (subscriptions.length === 0) {
@@ -680,129 +485,10 @@ export class BotService implements OnModuleInit {
       }
     });
   }
-  public async cardOfDay(msg: Message) {
-    try {
-      const user = await this.getUser(getUserFormMsg(msg));
-      const cardOfDay = await this.cartOfDayService.getCardOfDay(user.id);
-      this.sendToAnalytics(msg, 'cardOfDay', 'cardOfDay', 'Пользователь запросил карту дня');
-      if (cardOfDay) {
-        await this.telegramOperator.bot.sendMessage(msg.chat.id, cardOfDay.text, {parse_mode: 'HTML'});
-      } else {
-        const card = TaroService.getRandomCard();
-        const userInfo = await this.telegramOperator.bot.getChat(msg.chat.id);
-        //@ts-ignore
-        const birthDay = userInfo?.birthdate ? JSON.stringify(userInfo.birthdate) : 'не указана'
-        const description = `
-    Меня зовут ${userInfo.first_name} информация обо мне ${userInfo.bio} 
-    Моя дата рождения: ${birthDay}`;
-        const cardsWaitMessage = await this.telegramOperator.bot.sendMessage(msg.chat.id, `🃏 ${card.name} (${card.type}) ${card.inverted ? '(Перевернута)' : ''}\n\n— <b>Описание карты</b> —\n${card.description}`, {
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [
-              [
-                { text: 'Главное меню', callback_data: 'menu' },
-              ]
-            ]
-          }
-        });
-        const waitingText = await this.telegramOperator.bot.sendMessage(msg.chat.id, 'Подожди, сейчас подготовлю расшифровку..');
-
-        try {
-          const response = await OpenAiService.getAnswer(requestQuestion([card], 'Карта дня что ждет меня сегодня', description));
-          await this.telegramOperator.bot.deleteMessage(waitingText.chat.id, waitingText.message_id);
-
-
-          const jsonResponse = JSON.parse(response) as QuestionResponseDto;
-
-          const cardsResponse = jsonResponse.cards.map(card => `🃏 <b>${card.name} (${card.type}) ${card.inverted ? '(Перевернута)' : ''}</b>\n\n— <b>Описание карты</b> —\n${card.description}\n\n— <b>Расшифровка</b>  —\n${card.answer}`).join('\n\n');
-          const cardStringResponse = `<b>Карта дня ${dayjs().format('DD.MM.YYYY')}</b>\n\n${cardsResponse}\n\n<b>✨Общая расшифровка: </b>\n${jsonResponse.answer} \n\n🕊<b>Совет:</b> \n${jsonResponse.advice}`
-          await this.telegramOperator.bot.editMessageText(cardStringResponse, {chat_id: cardsWaitMessage.chat.id, message_id: cardsWaitMessage.message_id, parse_mode: 'HTML',  reply_markup: {
-              inline_keyboard: [
-                [
-                  { text: 'Главное меню', callback_data: 'menu' },
-                ]
-              ]
-            }});
-          await this.cartOfDayService.createCartOfDay(cardStringResponse, user.id);
-        } catch (e) {
-          console.error(e);
-          await this.telegramOperator.bot.deleteMessage(waitingText.chat.id, waitingText.message_id);
-          await this.telegramOperator.bot.sendMessage(msg.chat.id, 'Произошла ошибка, попробуйте ещё раз позже 😢');
-        }
-      }
-    } catch (e) {
-      console.error(e);
-    }
-
-
-  }
 
   public async askQuestion(msg: Message) {
     this.sendToAnalytics(msg, 'askQuestion', 'askQuestion', 'Пользователь задал свой вопрос');
-    try {
-      const question = await this.telegramOperator.requestQuestion(msg,
-        '🌙  Сформулируй свой вопрос подробно… ведь судьба шепчет лишь тем, кто умеет слушать её внимательно.\n\nМожешь написать, а можешь отправть голосовое, но не дольше 1 мин.');
-      let text = question.text;
 
-      if (question.voice && question.voice.duration >= 60) {
-        await this.telegramOperator.bot.sendMessage(msg.chat.id, 'Произошла ошибка, ваша запись должна быть не больше 1 минуты', {
-          reply_markup: {
-            inline_keyboard: [
-              [
-                { text: 'Главное меню', callback_data: 'menu' },
-              ]
-            ]
-          }
-        });
-        return
-      }
-
-      if (question.voice) {
-        const user = await this.getUser(getUserFormMsg(msg));
-        const wallet = await this.userService.getUserBalance(user.telegramId);
-        const subscriptions = await this.userService.getUserSubscriptions(user.id);
-
-        if (wallet.balance + subscriptions.length === 0) {
-          return await this.requestPaymentType(msg);
-        }
-
-        const fileUrl = await this.telegramOperator.bot.getFileLink(question.voice.file_id);
-        const transcriptionResponse = await OpenAiService.transcription(fileUrl);
-        text = transcriptionResponse.text;
-      }
-
-      if (question.video_note && question.video_note.duration >= 60) {
-        await this.telegramOperator.bot.sendMessage(msg.chat.id, 'Произошла ошибка, ваша запись должна быть не больше 1 минуты', {
-          reply_markup: {
-            inline_keyboard: [
-              [
-                { text: 'Главное меню', callback_data: 'menu' },
-              ]
-            ]
-          }
-        });
-        return
-      }
-
-      if (question.video_note) {
-        const user = await this.getUser(getUserFormMsg(msg));
-        const wallet = await this.userService.getUserBalance(user.telegramId);
-        const subscriptions = await this.userService.getUserSubscriptions(user.id);
-
-        if (wallet.balance + subscriptions.length === 0) {
-          return await this.requestPaymentType(msg);
-        }
-
-        const fileUrl = await this.telegramOperator.bot.getFileLink(question.video_note.file_id);
-        const transcriptionResponse = await OpenAiService.transcription(fileUrl);
-        text = transcriptionResponse.text;
-      }
-
-
-      await this.getAnswer(msg, text);
-    } catch (e) {
-      console.error(e)
-    }
   }
 
   public sendToAnalytics(msg: Message, action: string, page: string, text: string) {
@@ -886,60 +572,7 @@ export class BotService implements OnModuleInit {
   }
 
   public async getAnswer(msg: Message, theme: string) {
-    const user = await this.getUser(getUserFormMsg(msg));
-    const wallet = await this.userService.getUserBalance(user.telegramId);
-    const subscriptions = await this.userService.getUserSubscriptions(user.id);
 
-    if (wallet.balance + subscriptions.length === 0) {
-      return await this.requestPaymentType(msg);
-    }
-
-    const cards = TaroService.getRandomCards();
-    const userInfo = await this.telegramOperator.bot.getChat(msg.chat.id);
-
-    const DEFAULT_MSG = `<b>Ваши карты:</b> \n\n${cards.map((card) => `🃏 ${card.name} (${card.type}) ${card.inverted ? '(Перевернута)' : ''}\n\n— <b>Описание карты</b> —\n${card.description}`).join('\n\n')}`;
-
-    const cardsWaitMessage = await this.telegramOperator.bot.sendMessage(msg.chat.id, DEFAULT_MSG + `\n\n<b>Подожди, сейчас подготовлю расшифровку..</b>`, {
-      parse_mode: 'HTML',
-    });
-    //@ts-ignore
-    const birthDay = userInfo?.birthdate ? JSON.stringify(userInfo.birthdate) : 'не указана'
-    const description = `
-    Меня зовут ${userInfo.first_name} информация обо мне ${userInfo.bio} 
-    Моя дата рождения: ${birthDay}`;
-
-    try {
-      const response = await OpenAiService.getAnswer(requestQuestion(cards, theme, description));
-
-      const jsonResponse = JSON.parse(response) as QuestionResponseDto;
-
-      const cardsResponse = jsonResponse.cards.map(card => `🃏 <b>${card.name} (${card.type}) ${card.inverted ? '(Перевернута)' : ''}</b>\n\n— <b>Описание карты</b> —\n${card.description}\n\n— <b>Расшифровка</b>  —\n${card.answer}`).join('\n\n');
-      await this.telegramOperator.bot.editMessageText(`${cardsResponse}\n\n<b>✨Общая расшифровка: </b>\n${jsonResponse.answer} \n\n🕊<b>Совет:</b> \n${jsonResponse.advice}`, {chat_id: cardsWaitMessage.chat.id, message_id: cardsWaitMessage.message_id, parse_mode: 'HTML',  reply_markup: {
-          inline_keyboard: [
-            [
-              { text: 'Главное меню', callback_data: 'menu' },
-            ]
-          ]
-        }});
-      if (subscriptions.length === 0) {
-        await this.userService.updateBalance(user.id, wallet.balance - 1);
-      }
-    } catch (e) {
-      console.error(e);
-      await this.telegramOperator.bot.editMessageText(DEFAULT_MSG + `\n\nПри расшефровки произошла ошибка, попробуйте ещё раз позже 😢`, {
-        parse_mode: 'HTML',
-        chat_id: cardsWaitMessage.chat.id,
-        message_id: cardsWaitMessage.message_id,
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: 'Главное меню', callback_data: 'menu' },
-            ]
-          ]
-        }
-      })
-
-    }
   }
 
 

@@ -1,0 +1,1 @@
+export const HALF_HOUR_MS = 30 * 60 * 1000;

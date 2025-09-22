@@ -1,7 +1,7 @@
 import { Body, Controller, Post } from '@nestjs/common';
 import {YooNotificationDto } from './payment.dto';
 import { PaymentService } from './payment.service';
-import { PaymentEventBus } from '../../main';
+import { PaymentEventBus } from '../main';
 @Controller('payments')
 export class PaymentController {
   constructor(private readonly yoo: PaymentService) {}

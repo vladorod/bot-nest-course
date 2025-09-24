@@ -11,6 +11,8 @@ import { PaymentController } from './payments/payment.controller';
 import { PaymentService } from './payments/payment.service';
 import { QuestionService } from './question/question.service';
 import { UserService } from './user/user.service';
+import { ProgramsModule } from './programs/programs.module';
+import { CategoryModule } from './category/category.module';
 export const isDev =
   process.env.USERNAME === 'effec' || process.env.USERNAME === 'Gaming';
 
@@ -28,6 +30,8 @@ if (isDev) {
       isGlobal: true, // чтобы переменные окружения были доступны во всей программе
     }),
     HealthModule,
+    ProgramsModule,
+    CategoryModule,
   ],
   providers: [
     BotService,

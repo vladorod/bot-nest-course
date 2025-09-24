@@ -69,8 +69,6 @@ export class TelegramOperator implements OnModuleInit {
     if (this.callbackQueryCommands[ctx.data]) {
       this.bot.answerCallbackQuery(ctx.id);
       this.callbackQueryCommands[ctx.data](ctx.message);
-    } else {
-      this.bot.sendMessage(ctx.message.chat.id, 'Команда не найдена');
     }
   }
 
@@ -93,7 +91,6 @@ export class TelegramOperator implements OnModuleInit {
       await callback();
       this.bot.removeListener('message', handler);
     } catch (e) {
-
       this.bot.removeListener('message', handler);
     }
   }
@@ -108,8 +105,7 @@ export class TelegramOperator implements OnModuleInit {
       const lineKeyboard = options?.reply_markup?.inline_keyboard;
 
       const buttons =
-        lineKeyboard && lineKeyboard[0].map((button) => button.callback_data);
-
+        lineKeyboard?.length > 0 && lineKeyboard[0].map((button) => button.callback_data);
 
 
       const handler = (userMsg: Message) => {
@@ -127,24 +123,25 @@ export class TelegramOperator implements OnModuleInit {
       };
 
       const buttonHandler = (callbackQuery: CallbackQuery) => {
-
-        if (callbackQuery.message.chat.id === msg.from.id && buttons?.length > 0) {
-          const isCommand = Object.keys(
-            this.callbackQueryCommands.callbackQueryCommands,
-          ).find((command) => callbackQuery.data === command);
+        if (callbackQuery.from.id === msg.chat.id && buttons?.length > 0) {
+          try {
+            const isCommand = this.callbackQueryCommands?.callbackQueryCommands && Object.keys(
+              this.callbackQueryCommands.callbackQueryCommands,
+            )?.find((command) => callbackQuery?.data === command);
 
           if (!isCommand) {
             res({ ...callbackQuery.message, ...{ text: callbackQuery.data } });
             this.bot.answerCallbackQuery(callbackQuery.id);
             this.bot.removeListener('callback_query', buttonHandler);
           }
+          } catch (e) {
+            console.error(e)
+          }
         } else {
           this.bot.removeListener('callback_query', buttonHandler);
           this.bot.removeListener('message', handler);
         }
       };
-
-
 
 
       await this.bot.sendMessage(msg.chat.id, text, {

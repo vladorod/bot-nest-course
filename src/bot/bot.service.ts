@@ -13,6 +13,9 @@ import { GA4Service } from '../firebase-analytics.service';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { User } from '@prisma/client';
 import { getGaSession, getPage, getUserFormMsg } from '../utils';
+import { ProgramsService } from '../programs/programs.service';
+import { CategoryService } from '../category/category.service';
+import { QuestionService } from '../question/question.service';
 
 const ga4 = new GA4Service(process.env.GOOGLE_MEASUREMENT_ID, process.env.GA4_API_KEY);
 
@@ -26,7 +29,7 @@ export class BotService implements OnModuleInit {
   public appointmentChatId : string;
   public botName : string;
 
-  constructor(private readonly telegramOperator: TelegramOperator, private readonly userService: UserService, private readonly paymentService: PaymentService)  {}
+  constructor(private readonly telegramOperator: TelegramOperator, private readonly userService: UserService, private readonly paymentService: PaymentService, private readonly programServices: ProgramsService, private readonly categoryService: CategoryService, private readonly questionService: QuestionService)  {}
 
   initialization() {
     this.appointmentThreadId = process.env.TELEGRAM_APPOINTMENTS_THREAD_ID;
@@ -60,8 +63,114 @@ export class BotService implements OnModuleInit {
     this.telegramOperator.addCommand('paySubscription', (msg) =>  this.paySubscription(msg));
     this.telegramOperator.addCommand('profile', (msg) =>  this.getProfile(msg));
 
+    this.programServices.getPrograms().then(programs => {
+      programs.forEach((program) =>  {
+        this.telegramOperator.addCommand(program.callback_data, (msg) => this.getCategories(msg, program.id));
+      })
+    })
+
+    this.categoryService.getCategories().then(categories => {
+      categories.forEach((category) =>  {
+        this.telegramOperator.addCommand(category.callback_data, (msg) => this.getSubcategories(msg, category.id));
+      })
+    })
+
+    this.categoryService.getSubCategorises().then(categories => {
+      categories.forEach((category) =>  {
+        this.telegramOperator.addCommand(category.callback_data, (msg) => this.getCategories(msg, category.id));
+      })
+    })
+
+
+
     this.telegramOperator.updateCallbackQueryCommands();
 
+
+  }
+
+  async startAskingQuestion(msg: Message, categoryId: string) {
+    const questions = await this.questionService.getMany({categoryId, isActive: true});
+    let questionIndex = 0;
+    let rightAnswersCounter = 0;
+
+    for (const question of questions) {
+      questionIndex++;
+      const questions = JSON.parse(question.options) as string[];
+      const answer = await this.telegramOperator.requestQuestion(msg, `Вопрос: ${questionIndex}\n\n${question.question}`, {
+        reply_markup: {
+          inline_keyboard: questions.map((question, index) => ([{
+            text: question,
+            callback_data: index.toString(),
+          }]))
+        }
+      })
+
+      if (+answer?.text === +question.correctAnswer) {
+        rightAnswersCounter++;
+        await this.telegramOperator.requestQuestion(answer, `✅Правильно!\n\n${question.explanation}`, {
+          reply_markup: {
+            inline_keyboard: [
+              [{
+                text: 'Далее', callback_data: 'next'
+              }]
+            ]
+          }
+        })
+      } else {
+        await this.telegramOperator.requestQuestion(answer, `❌ Неверно!\n\n${question.explanation}`, {
+          reply_markup: {
+            inline_keyboard: [
+              [{
+                text: 'Далее', callback_data: 'next'
+              }]
+            ]
+          }
+        })
+      }
+    }
+
+    await this.telegramOperator.bot.sendMessage(msg.chat.id, `<b>Правильных ответов</b>  ${rightAnswersCounter} из ${questions.length}`, {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [[{
+          text: 'Главное меню', callback_data: 'menu'
+        }]]
+      }})
+    }
+
+  async getSubcategories(msg: Message, categoryId: string) {
+    const categories = await this.categoryService.getSubCategoryByCatId(categoryId);
+
+    if (categories.length === 0) {
+      this.startAskingQuestion(msg, categoryId)
+
+      return
+    }
+
+
+    await this.telegramOperator.requestQuestion(msg, "Выберете направление", {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: categories.map((category) => ([{
+          callback_data: category.callback_data,
+          text: category.name,
+        }]))
+      }
+    })
+  }
+
+  async getCategories(msg: Message, programId: string) {
+    const categories = await this.categoryService.getCategoryByProgramId(programId);
+
+    await this.telegramOperator.requestQuestion(msg, "Выберете категорию", {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: categories.map((category) => ([{
+          callback_data: category.callback_data,
+          text: category.name,
+        }]))
+      }
+    })
 
   }
 
@@ -153,18 +262,15 @@ export class BotService implements OnModuleInit {
       }
 
       this.sendToAnalytics(msg, 'main_menu', 'main_menu', 'Пользователь в главном меню');
+      const programs = await this.programServices.getPrograms();
 
       await this.telegramOperator.requestQuestion(msg, GREETING(msg.from.username), {
         parse_mode: 'HTML',
         reply_markup: {
-          inline_keyboard: [
-            [
-              { text: 'Пройти собеседование', callback_data: 'pass_an_interview' },
-            ],
-            [
-              { text: 'Изучение по темам', callback_data: 'learn_teams' },
-            ]
-          ]
+          inline_keyboard: programs.map((program) => ([{
+            callback_data: program.callback_data,
+            text: program.name.toLowerCase(),
+          }]))
         }
       })
 

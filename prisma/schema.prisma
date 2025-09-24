@@ -30,14 +30,15 @@ model User {
 
 // Программы обучения
 model Program {
-  id          String      @id @default(uuid())
-  name        String      @unique // "Мок-собеседование", "Изучение по темам"
-  description String? // Описание программы
-  type        ProgramType // Тип программы
-  isActive    Boolean     @default(true)
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-  order       Int         @default(0)
+  id            String      @id @default(uuid())
+  name          String      @unique // "Мок-собеседование", "Изучение по темам"
+  description   String? // Описание программы
+  callback_data String?
+  type          ProgramType // Тип программы
+  isActive      Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  order         Int         @default(0)
 
   // Связи
   categories Category[]
@@ -47,14 +48,15 @@ model Program {
 
 // Категории (HTTP/HTTPS, браузер, HTML, CSS, React и т.д.)
 model Category {
-  id          String   @id @default(uuid())
-  name        String   @unique // "React", "HTML", "CSS", "HTTP/HTTPS", "Браузер"
-  description String? // Описание категории
-  icon        String? // Эмодзи для категории
-  isActive    Boolean  @default(true)
-  order       Int // Порядок отображения
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String   @id @default(uuid())
+  name          String   @unique // "React", "HTML", "CSS", "HTTP/HTTPS", "Браузер"
+  description   String? // Описание категории
+  icon          String? // Эмодзи для категории
+  callback_data String?
+  isActive      Boolean  @default(true)
+  order         Int // Порядок отображения
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   // Связи
   programId String
@@ -69,17 +71,17 @@ model Category {
 
 // Подтемы (хуки, состояния, рендеринг и т.д.)
 model Subcategory {
-  id          String   @id @default(uuid())
-  name        String // "Хуки", "Состояние", "Рендеринг", "Компоненты"
-  description String? // Описание подтемы
-  isActive    Boolean  @default(true)
-  order       Int // Порядок отображения
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
+  id            String   @id @default(uuid())
+  name          String // "Хуки", "Состояние", "Рендеринг", "Компоненты"
+  description   String? // Описание подтемы
+  isActive      Boolean  @default(true)
+  order         Int // Порядок отображения
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  callback_data String?
   // Связи
-  categoryId String
-  category   Category @relation(fields: [categoryId], references: [id])
+  categoryId    String
+  category      Category @relation(fields: [categoryId], references: [id])
 
   questions    Question[]
   userProgress UserProgress[]

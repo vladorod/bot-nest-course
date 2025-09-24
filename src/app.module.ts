@@ -13,6 +13,8 @@ import { QuestionService } from './question/question.service';
 import { UserService } from './user/user.service';
 import { ProgramsModule } from './programs/programs.module';
 import { CategoryModule } from './category/category.module';
+import { ProgramsService } from './programs/programs.service';
+import { CategoryService } from './category/category.service';
 export const isDev =
   process.env.USERNAME === 'effec' || process.env.USERNAME === 'Gaming';
 
@@ -45,6 +47,8 @@ if (isDev) {
     PaymentService,
     UserService,
     QuestionService,
+    ProgramsService,
+    CategoryService
   ],
   exports: [PrismaService],
   controllers: [PaymentController],

@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { Difficulty, InterviewLevel, Prisma } from '@prisma/client';
+import { Difficulty, InterviewLevel, Prisma, Question } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import type { Cache } from 'cache-manager';
@@ -55,7 +55,7 @@ export class QuestionService {
       skip?: number;
       orderBy?: Prisma.QuestionOrderByWithRelationInput;
     } = {},
-  ) {
+  ): Promise<Question[]> {
     const where: Prisma.QuestionWhereInput = {
       isActive: filters.isActive ?? true,
       categoryId: filters.categoryId,
@@ -65,7 +65,7 @@ export class QuestionService {
     };
     const hash = btoa(JSON.stringify(where));
     const cache = await this.cache.get(`questions:${hash}`);
-    if (cache) return cache;
+    if (cache) return cache as Question[];
 
     const questions =  this.prisma.question.findMany({
       where,

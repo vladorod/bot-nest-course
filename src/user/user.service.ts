@@ -1,19 +1,28 @@
 
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PlanType, Prisma } from '@prisma/client';
+import { PlanType, Prisma, Subscription } from '@prisma/client';
 import { CreateUserDto } from './dto/create.user.dto';
 import { Currency } from '../payments/payment.dto';
 import * as dayjs from 'dayjs';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import type { Cache } from 'cache-manager';
 
 @Injectable()
 export class UserService {
-  constructor(private readonly prismaService: PrismaService)  {}
+  constructor(private readonly prismaService: PrismaService, @Inject(CACHE_MANAGER) private cache: Cache)  {}
+
 
   async isUserExist(telegramId: string) {
-    const user = await this.prismaService.user.findUnique({where: {telegramId}})
-    return user
+    const _user = await this.cache.get(`user:${telegramId}`);
+    if (_user) return _user;
+
+    const user = await this.prismaService.user.findUnique({where: {telegramId}});
+    await this.cache.set(`user:${telegramId}`, user);
+
+    return user;
   }
+
   async create(user: CreateUserDto) {
     return this.prismaService.user.create({data: {
       ...user,
@@ -54,7 +63,11 @@ export class UserService {
       }})
   }
 
-  async getUserSubscriptions(userId: string) {
+
+  async getUserSubscriptions(userId: string): Promise<Subscription[]> {
+    const subs = await this.cache.get(`user:${userId}:subscriptions`) as Subscription[];
+    if (subs) return subs;
+
     const data = await this.prismaService.subscription.findMany({
       where: {
         userId,
@@ -63,7 +76,9 @@ export class UserService {
         },
         isActive: true
       }
-    })
+    });
+
+    await this.cache.set(`user:${userId}:subscriptions`, data);
     return data
   }
 

@@ -23,6 +23,11 @@ if (isDev) {
 @Module({
   imports: [
     CacheModule.register({
+      // общий TTL по умолчанию (секунды)
+      ttl: 60*60,
+      // ограничение по количеству ключей (LRU)
+      max: 1_000,
+      // включи глобально, если надо везде
       isGlobal: true,
     }),
     ScheduleModule.forRoot(),

@@ -1,6 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Difficulty, InterviewLevel, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import type { Cache } from 'cache-manager';
 
 export type QuestionFilters = {
   categoryId?: string;
@@ -12,10 +14,16 @@ export type QuestionFilters = {
 
 @Injectable()
 export class QuestionService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, @Inject(CACHE_MANAGER) private cache: Cache ) {}
+
 
   async getById(id: string) {
-    return this.prisma.question.findUnique({ where: { id } });
+    const quest = await this.cache.get(`question:${id}`);
+    if (quest) return quest;
+    const _quest = await this.prisma.question.findUnique({ where: { id } });
+    await this.cache.set(`question:${id}`, _quest, 60 * 15);
+
+    return _quest;
   }
 
   async getRandom(filters: QuestionFilters = {}) {
@@ -39,6 +47,7 @@ export class QuestionService {
     return question ?? null;
   }
 
+
   async getMany(
     filters: QuestionFilters = {},
     options: {
@@ -54,12 +63,18 @@ export class QuestionService {
       difficulty: filters.difficulty,
       interviewLevel: filters.interviewLevel ?? undefined,
     };
+    const hash = btoa(JSON.stringify(where));
+    const cache = await this.cache.get(`questions:${hash}`);
+    if (cache) return cache;
 
-    return this.prisma.question.findMany({
+    const questions =  this.prisma.question.findMany({
       where,
       take: options.take ?? 20,
       skip: options.skip ?? 0,
       orderBy: options.orderBy ?? { createdAt: 'desc' },
     });
+
+    await this.cache.set(`questions:${hash}`, questions, 60 * 15);
+    return questions;
   }
 }

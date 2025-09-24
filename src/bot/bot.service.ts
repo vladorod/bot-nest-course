@@ -185,7 +185,7 @@ export class BotService implements OnModuleInit {
     first_name: string,
     last_name: string,
     username: string,
-  }) {
+  }): Promise<User> {
     const chat = await this.telegramOperator.getChat(+options.id);
     if (!chat) throw new Error(`Пользователь удалил чат ${options.id}`);
 
@@ -199,7 +199,7 @@ export class BotService implements OnModuleInit {
       })
     }
 
-    return user
+    return user as User
   }
 
   public async makeSchedule(msg: Message) {
